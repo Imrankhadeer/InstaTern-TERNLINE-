@@ -50,9 +50,9 @@ app.include_router(attacks_router)
 async def home(request: Request):
     """Renders the main Instagram interface with Cyber Engine security dock."""
     return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request,
+        request=request,
+        name="index.html",
+        context={
             "app_name": settings.app_name,
             "cyber_engine_url": settings.cyber_engine_url,
             "app_id": settings.app_id,
