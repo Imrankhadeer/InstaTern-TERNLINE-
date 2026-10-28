@@ -13,6 +13,7 @@ class User(BaseModel):
     following_count: int = 0
     is_verified: bool = False
     is_private: bool = False
+    role: str = "user"  # "user" or "admin"
 
 
 class Comment(BaseModel):
@@ -34,6 +35,32 @@ class Post(BaseModel):
     tags: List[str] = Field(default_factory=list)
     created_at: str
     is_liked: bool = False
+
+
+class DirectMessage(BaseModel):
+    id: str
+    conversation_id: str
+    sender: str
+    recipient: str
+    text: str
+    timestamp: str
+    is_sensitive: bool = False
+
+
+class Conversation(BaseModel):
+    id: str
+    participants: List[str]
+    last_message: str
+    last_updated: str
+    messages: List[DirectMessage] = Field(default_factory=list)
+
+
+class Story(BaseModel):
+    id: str
+    author: User
+    media_url: str
+    is_seen: bool = False
+    created_at: str
 
 
 class LoginRequest(BaseModel):
@@ -58,10 +85,17 @@ class CreateCommentRequest(BaseModel):
     text: str
 
 
-class Story(BaseModel):
-    id: str
-    author: User
-    media_url: str
-    is_seen: bool = False
-    created_at: str
+class SendMessageRequest(BaseModel):
+    recipient: str
+    text: str
 
+
+class CreateStoryRequest(BaseModel):
+    media_url: str
+
+
+class ProfileUpdateRequest(BaseModel):
+    full_name: Optional[str] = None
+    bio: Optional[str] = None
+    avatar_url: Optional[str] = None
+    is_private: Optional[bool] = None

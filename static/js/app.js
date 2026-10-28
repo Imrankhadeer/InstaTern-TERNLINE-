@@ -4,6 +4,8 @@ const state = {
   currentUser: null,
   posts: [],
   stories: [],
+  conversations: [],
+  activeConversationId: null,
   telemetryEvents: [],
   connected: false,
 };
@@ -42,6 +44,15 @@ function setupEventListeners() {
     createPostForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       await submitNewPost();
+    });
+  }
+
+  // Create story form
+  const createStoryForm = document.getElementById("createStoryForm");
+  if (createStoryForm) {
+    createStoryForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      await submitNewStory();
     });
   }
 }
@@ -144,7 +155,7 @@ function renderCurrentUser() {
   if (userPill) {
     userPill.innerHTML = `
       <img src="${u.avatar_url}" alt="${u.username}" />
-      <span>@${u.username}</span>
+      <span>@${u.username} (${u.role || 'user'})</span>
     `;
   }
 
@@ -155,12 +166,13 @@ function renderCurrentUser() {
         <div style="display:flex; align-items:center; gap:12px;">
           <img src="${u.avatar_url}" style="width:48px; height:48px; border-radius:50%; object-fit:cover;" />
           <div>
-            <strong>${u.username}</strong>
-            <div style="font-size:12px; color:var(--text-muted);">${u.full_name}</div>
+            <strong>${u.username} ${u.is_verified ? "✓" : ""}</strong>
+            <div style="font-size:12px; color:var(--text-muted);">${u.full_name} &bull; <span style="color:var(--accent-lime);">${u.role.toUpperCase()}</span></div>
           </div>
         </div>
         <button class="nav-icon-btn" onclick="openSwitchUserModal()" style="font-size:12px; color:var(--accent-lime);">Switch</button>
       </div>
+      <div style="font-size:12px; color:var(--text-dim); margin-bottom:14px; line-height:1.4;">${escapeHtml(u.bio)}</div>
     `;
   }
 }
@@ -204,7 +216,9 @@ function renderFeed() {
             <span>${post.created_at}</span>
           </div>
         </div>
-        <button class="nav-icon-btn" title="Options">•••</button>
+        <div style="display:flex; gap:6px;">
+          <button class="nav-icon-btn" title="Delete Post (Tests IDOR/BOLA)" onclick="deletePostWithIdorCheck('${post.id}')" style="color:var(--text-dim); font-size:11px;">🗑️</button>
+        </div>
       </div>
 
       <div class="post-image-container">
@@ -349,6 +363,142 @@ function sharePost(postId) {
   alert(`Post link copied to clipboard: ${postId}`);
 }
 
+async function deletePostWithIdorCheck(postId) {
+  const wantIdor = confirm("Do you want to simulate an unauthorized BOLA/IDOR deletion attack?\n\nClick OK to exploit IDOR (bypass ownership check)\nClick Cancel for normal legitimate check");
+  try {
+    const res = await fetch(`/api/posts/${postId}?exploit_idor=${wantIdor}`, { method: "DELETE" });
+    if (res.ok) {
+      alert(`Post ${postId} deleted! (IDOR Exploit Flag: ${wantIdor})`);
+      await fetchFeed();
+    } else {
+      const err = await res.json();
+      alert(`Delete Denied (403 Forbidden): ${err.detail}`);
+    }
+    fetchRecentTelemetry();
+  } catch (e) {
+    alert("Delete error: " + e.message);
+  }
+}
+
+// --- Direct Messages & BOLA Target ---
+
+async function openMessagesModal() {
+  const modal = document.getElementById("messagesModal");
+  if (modal) modal.classList.add("active");
+  await loadConversations();
+}
+
+function closeMessagesModal() {
+  const modal = document.getElementById("messagesModal");
+  if (modal) modal.classList.remove("active");
+}
+
+async function loadConversations() {
+  try {
+    const res = await fetch("/api/messages");
+    if (res.ok) {
+      state.conversations = await res.json();
+      renderConversationsList();
+      if (state.conversations.length > 0 && !state.activeConversationId) {
+        selectConversation(state.conversations[0].id);
+      }
+    }
+  } catch (err) {
+    console.error("Error loading conversations:", err);
+  }
+}
+
+function renderConversationsList() {
+  const list = document.getElementById("conversationsList");
+  if (!list) return;
+
+  list.innerHTML = state.conversations
+    .map(
+      (c) => `
+    <div onclick="selectConversation('${c.id}')" style="cursor:pointer; padding:8px; border-radius:8px; background:${state.activeConversationId === c.id ? 'var(--panel-bg)' : 'transparent'}; border:1px solid ${state.activeConversationId === c.id ? 'var(--border-focus)' : 'transparent'};">
+      <div style="font-weight:600; font-size:12px; color:var(--text-main);">${c.participants.join(' & ')}</div>
+      <div style="font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${c.last_message}</div>
+    </div>
+  `
+    )
+    .join("");
+}
+
+async function selectConversation(convId, exploitBola = false) {
+  state.activeConversationId = convId;
+  renderConversationsList();
+
+  const btnTestBola = document.getElementById("btnTestBola");
+  if (btnTestBola) btnTestBola.style.display = "inline-block";
+
+  try {
+    const res = await fetch(`/api/messages/${convId}?exploit_bola=${exploitBola}`);
+    const header = document.getElementById("threadHeader");
+    const container = document.getElementById("messagesContent");
+
+    if (res.ok) {
+      const conv = await res.json();
+      if (header) header.querySelector("span").innerText = conv.participants.join(" & ");
+      if (container) {
+        container.innerHTML = conv.messages
+          .map(
+            (m) => `
+          <div style="padding:6px 10px; border-radius:8px; background:${m.sender === state.currentUser?.username ? 'rgba(183,243,107,0.1)' : 'var(--panel-bg)'}; border:1px solid ${m.is_sensitive ? 'var(--danger-red)' : 'var(--border-color)'}; align-self:${m.sender === state.currentUser?.username ? 'flex-end' : 'flex-start'}; max-width:85%;">
+            <div style="font-size:10px; color:${m.is_sensitive ? 'var(--danger-red)' : 'var(--text-dim)'}; font-weight:700;">
+              @${m.sender} ${m.is_sensitive ? '🔒 SENSITIVE SECRET EXPOSED' : ''}
+            </div>
+            <div style="font-size:12px; color:var(--text-main); margin-top:2px;">${escapeHtml(m.text)}</div>
+            <div style="font-size:9px; color:var(--text-dim); text-align:right;">${m.timestamp}</div>
+          </div>
+        `
+          )
+          .join("");
+        container.scrollTop = container.scrollHeight;
+      }
+    } else {
+      const err = await res.json();
+      if (container) {
+        container.innerHTML = `<div style="color:var(--danger-red); padding:20px; font-size:12px; text-align:center;">⛔ ${err.detail}</div>`;
+      }
+    }
+    fetchRecentTelemetry();
+  } catch (err) {
+    console.error("Select conversation error:", err);
+  }
+}
+
+async function exploitCurrentThreadBola() {
+  if (!state.activeConversationId) return;
+  alert(`Triggering BOLA/IDOR exploit on ${state.activeConversationId} as @${state.currentUser.username}...`);
+  await selectConversation(state.activeConversationId, true);
+}
+
+async function sendCurrentDM() {
+  const input = document.getElementById("dmInput");
+  if (!input || !input.value.trim() || !state.activeConversationId) return;
+
+  const text = input.value.trim();
+  input.value = "";
+
+  const conv = state.conversations.find((c) => c.id === state.activeConversationId);
+  const recipient = conv ? conv.participants.find((p) => p !== state.currentUser.username) || "charlie_vip" : "charlie_vip";
+
+  try {
+    const res = await fetch("/api/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recipient, text }),
+    });
+    if (res.ok) {
+      await selectConversation(state.activeConversationId);
+      await loadConversations();
+      fetchRecentTelemetry();
+    }
+  } catch (err) {
+    console.error("Error sending DM:", err);
+  }
+}
+
 // --- Search & SQL Injection ---
 
 async function executeSearch(query) {
@@ -419,6 +569,39 @@ async function triggerSearchSqli() {
   await executeSearch("' OR 1=1; SELECT * FROM users --");
 }
 
+async function triggerBolaDmTheft() {
+  try {
+    const res = await fetch("/api/attacks/bola-dm-theft", { method: "POST" });
+    const data = await res.json();
+    alert(`🛡️ ${data.message}\n\nCheck Cyber Engine console for BOLA_IDOR_VIOLATION security alert!`);
+    await fetchRecentTelemetry();
+  } catch (e) {
+    alert("BOLA attack error: " + e.message);
+  }
+}
+
+async function triggerScraperBot() {
+  try {
+    const res = await fetch("/api/attacks/api-scraping", { method: "POST" });
+    const data = await res.json();
+    alert(`🤖 ${data.message}`);
+    await fetchRecentTelemetry();
+  } catch (e) {
+    alert("Scraper simulation error: " + e.message);
+  }
+}
+
+async function triggerPrivilegeEscalation() {
+  try {
+    const res = await fetch("/api/attacks/privilege-escalation", { method: "POST" });
+    const data = await res.json();
+    alert(`🔑 ${data.message}\n\nExfiltrated ${data.dumped_users} password hashes and session tokens!`);
+    await fetchRecentTelemetry();
+  } catch (e) {
+    alert("Privilege escalation error: " + e.message);
+  }
+}
+
 async function triggerBenignTraffic() {
   try {
     const res = await fetch("/api/attacks/benign-traffic", { method: "POST" });
@@ -440,6 +623,34 @@ function openCreatePostModal() {
 function closeCreatePostModal() {
   const modal = document.getElementById("createPostModal");
   if (modal) modal.classList.remove("active");
+}
+
+function openCreateStoryModal() {
+  const modal = document.getElementById("createStoryModal");
+  if (modal) modal.classList.add("active");
+}
+
+function closeCreateStoryModal() {
+  const modal = document.getElementById("createStoryModal");
+  if (modal) modal.classList.remove("active");
+}
+
+async function submitNewStory() {
+  const mediaUrl = document.getElementById("newStoryMedia").value;
+  try {
+    const res = await fetch("/api/stories", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ media_url: mediaUrl }),
+    });
+    if (res.ok) {
+      closeCreateStoryModal();
+      await fetchStories();
+      fetchRecentTelemetry();
+    }
+  } catch (e) {
+    alert("Story submission error: " + e.message);
+  }
 }
 
 async function submitNewPost() {
@@ -496,10 +707,10 @@ async function loadUsersList() {
           (u) => `
         <div style="display:flex; align-items:center; justify-content:space-between; padding:8px; border-radius:8px; background:var(--panel-bg); margin-bottom:8px;">
           <div style="display:flex; align-items:center; gap:10px;">
-            <img src="${u.avatar_url}" style="width:36px; height:36px; border-radius:50%;" />
+            <img src="${u.avatar_url}" style="width:36px; height:36px; border-radius:50%; object-fit:cover;" />
             <div>
-              <strong>${u.username}</strong>
-              <div style="font-size:11px; color:var(--text-muted);">${u.full_name}</div>
+              <strong>${u.username} ${u.is_verified ? "✓" : ""}</strong>
+              <div style="font-size:11px; color:var(--text-muted);">${u.full_name} &bull; <span style="color:var(--accent-lime);">${u.role.toUpperCase()}</span></div>
             </div>
           </div>
           <button class="btn-primary" style="padding:4px 10px; font-size:11px;" onclick="selectUser('${u.username}')">Select</button>
@@ -541,4 +752,3 @@ function escapeHtml(str) {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
-

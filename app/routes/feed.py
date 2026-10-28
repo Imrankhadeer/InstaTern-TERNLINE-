@@ -1,8 +1,8 @@
 import uuid
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Query
 from typing import List, Dict, Any
 
-from ..models import Post, Story, Comment, CreatePostRequest, CreateCommentRequest, User
+from ..models import Post, Story, Comment, CreatePostRequest, CreateCommentRequest, CreateStoryRequest, User
 from ..database import db
 from ..telemetry import telemetry
 from .auth import CURRENT_ACTIVE_USER
@@ -12,8 +12,39 @@ router = APIRouter(prefix="/api", tags=["feed"])
 
 @router.get("/stories", response_model=List[Story])
 async def get_stories():
-    """Returns stories for the stories bar."""
+    """Returns all active 24-hour stories."""
     return db.stories
+
+
+@router.post("/stories", response_model=Story)
+async def create_story(req: CreateStoryRequest, request: Request):
+    """Publish a new 24-hour story."""
+    user = db.users.get(CURRENT_ACTIVE_USER)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    story_id = f"story_{uuid.uuid4().hex[:8]}"
+    story = Story(
+        id=story_id,
+        author=user,
+        media_url=req.media_url,
+        created_at="Just now",
+    )
+    db.stories.insert(0, story)
+
+    telemetry.emit(
+        event_type="http.request",
+        attributes={
+            "method": "POST",
+            "endpoint": "/api/stories",
+            "user": user.username,
+            "story_id": story_id,
+        },
+        source_resource=f"user:{user.username}",
+        target_resource=f"story:{story_id}",
+        severity="info",
+    )
+    return story
 
 
 @router.get("/feed", response_model=List[Post])
@@ -93,6 +124,58 @@ async def create_post(req: CreatePostRequest, request: Request):
     return post
 
 
+@router.delete("/posts/{post_id}")
+async def delete_post(
+    post_id: str,
+    request: Request,
+    exploit_idor: bool = Query(False, description="Simulate IDOR post deletion vulnerability")
+):
+    """
+    Deletes a post.
+    Demonstrates BOLA/IDOR vulnerability:
+    If exploit_idor is True, an unauthorized user can delete someone else's post!
+    """
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    trace_id = f"trc_post_del_{uuid.uuid4().hex[:10]}"
+
+    try:
+        success = db.delete_post(post_id, requester_username=CURRENT_ACTIVE_USER, bypass_owner_check=exploit_idor)
+        if not success:
+            raise HTTPException(status_code=404, detail="Post not found")
+
+        telemetry.emit(
+            event_type="http.request",
+            attributes={
+                "method": "DELETE",
+                "endpoint": f"/api/posts/{post_id}",
+                "requester": CURRENT_ACTIVE_USER,
+                "is_unauthorized_idor": exploit_idor,
+                "status_code": 200,
+            },
+            source_resource=f"user:{CURRENT_ACTIVE_USER}",
+            target_resource=f"post:{post_id}",
+            trace_id=trace_id,
+            severity="warning" if exploit_idor else "info",
+        )
+        return {"status": "deleted", "post_id": post_id, "idor_exploit": exploit_idor}
+
+    except PermissionError as pe:
+        telemetry.emit(
+            event_type="security.alert",
+            attributes={
+                "alert_type": "UNAUTHORIZED_DELETE_ATTEMPT",
+                "post_id": post_id,
+                "requester": CURRENT_ACTIVE_USER,
+                "status_code": 403,
+            },
+            source_resource=f"user:{CURRENT_ACTIVE_USER}",
+            target_resource=f"post:{post_id}",
+            trace_id=trace_id,
+            severity="warning",
+        )
+        raise HTTPException(status_code=403, detail=str(pe))
+
+
 @router.post("/posts/{post_id}/like", response_model=Post)
 async def toggle_like(post_id: str, request: Request):
     """Like or unlike a post."""
@@ -149,5 +232,36 @@ async def get_user_profile(username: str):
         "user": user,
         "posts": user_posts,
         "posts_count": len(user_posts),
+        "followers": list(db.followers.get(username, [])),
+        "following": list(db.following.get(username, [])),
     }
 
+
+@router.post("/users/{username}/follow")
+async def follow_user(username: str, request: Request):
+    """Follow a user profile."""
+    success = db.follow_user(CURRENT_ACTIVE_USER, username)
+    if not success:
+        raise HTTPException(status_code=400, detail="Cannot follow this user")
+
+    telemetry.emit(
+        event_type="user.followed",
+        attributes={"follower": CURRENT_ACTIVE_USER, "target": username},
+        severity="info",
+    )
+    return {"status": "following", "target": username}
+
+
+@router.post("/users/{username}/unfollow")
+async def unfollow_user(username: str, request: Request):
+    """Unfollow a user profile."""
+    success = db.unfollow_user(CURRENT_ACTIVE_USER, username)
+    if not success:
+        raise HTTPException(status_code=400, detail="Cannot unfollow this user")
+
+    telemetry.emit(
+        event_type="user.unfollowed",
+        attributes={"follower": CURRENT_ACTIVE_USER, "target": username},
+        severity="info",
+    )
+    return {"status": "unfollowed", "target": username}

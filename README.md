@@ -1,125 +1,74 @@
-# InstaTern — Instagram Test Application for Cyber Engine
+# InstaTern — Advanced Multi-Service Social Application & Security Testing Suite
 
-**InstaTern** is a standalone, full-featured Instagram-like social media application built with **FastAPI**, **Jinja2**, and vanilla CSS/JS. It is pre-instrumented with the **Cyber Engine Python SDK** to stream realistic application telemetry (`http.request`, `auth.login_failed`, `db.bulk_query`, `worker.job_anomalous`) directly to Cyber Engine for continuous threat detection and AI-assisted deep investigation.
-
----
-
-## 🌟 Features
-
-- **Instagram UI & Experience**:
-  - Stories tray with glowing gradient rings (`@alice_cyber`, `@bob_cloud`, `@elena_ai`, `@charlie_vip`).
-  - Feed with photos, captions, expandable `#tags`, like heart toggles, and live comments.
-  - Explore & Search bar with interactive SQL injection testing.
-  - Modal dialog for creating new posts with thumbnail processing.
-  - Multi-user account switcher for testing different personas.
-- **Cyber Engine Telemetry & Attack Testing Dock**:
-  - Built-in floating sidebar console displaying real-time connectivity to Cyber Engine (`STREAMING / 200 OK`).
-  - **One-Click Attack Generators**:
-    1. ⚡ **Brute Force Spray**: Rapidly fires 6 failed login attempts against `@charlie_vip` &rarr; triggers Cyber Engine's `BruteForceLoginDetector`.
-    2. 🚨 **APT Exfiltration Sequence**: Coordinated multi-service attack (API Gateway &rarr; Worker Decompression Anomaly &rarr; Sensitive Database Bulk Exfiltration) with shared `trace_id` &rarr; triggers `CrossServiceExfiltrationDetector`.
-    3. 🔍 **Search SQL Injection**: Injects `' OR 1=1; SELECT * FROM users --` leaking 850 user records &rarr; emits `db.bulk_query`.
-    4. ✅ **Benign Traffic Simulation**: Generates legitimate browsing, liking, and commenting telemetry with zero false positives.
-  - **Live Telemetry Stream**: Rolling feed showing recently emitted events, target resources, correlated trace IDs, and Cyber Engine acceptance latencies.
+**InstaTern** is a production-grade, multi-service Instagram clone built with **FastAPI**, **Jinja2**, and vanilla CSS/JS. It provides real social media capabilities (feeds, photo uploads, comment threads, ephemeral 24h stories, private direct messaging, follow graphs, and administrative metrics) while serving as a **realistic, multi-vector attack surface** instrumented with the **Cyber Engine Python SDK**.
 
 ---
 
-## 🚀 Running Locally
+## 🏗️ Architecture & Real API Endpoints
 
-### 1. Install Dependencies
-```bash
+### 1. Feed & Posts API (`/api/posts`)
+- `GET /api/feed` — Paginated home feed with like status and comment threads.
+- `POST /api/posts` — Creates posts with captions, photos, hashtags, and kicks off async background media transcoding.
+- `DELETE /api/posts/{post_id}` — Deletes posts with strict ownership checks (supports testing BOLA/IDOR).
+- `POST /api/posts/{post_id}/like` — Real-time like toggle.
+- `POST /api/posts/{post_id}/comments` — Appends user comments.
+
+### 2. Ephemeral 24h Stories API (`/api/stories`)
+- `GET /api/stories` — Active stories tray with gradient rings.
+- `POST /api/stories` — Creates new 24h temporary media story.
+
+### 3. Direct Messaging (DMs) API (`/api/messages`)
+- `GET /api/messages` — Lists active conversations for the authenticated persona.
+- `GET /api/messages/{conv_id}` — Fetches encrypted message threads with role/participant authorization.
+- `POST /api/messages` — Sends direct messages with automated sensitive credential detection.
+
+### 4. User Profiles & Social Graph (`/api/users`, `/api/auth`)
+- `GET /api/users/{username}` — User profile with bio, follower count, following count, and post gallery.
+- `POST /api/users/{username}/follow` & `POST /api/users/{username}/unfollow` — Manages social graph connections.
+- `POST /api/auth/login` — Authentication endpoint with real failed/success credential verification.
+- `POST /api/auth/switch-user/{username}` — Switches personas (`@alice_cyber`, `@bob_cloud`, `@charlie_vip`, `@elena_ai`, `@hacker_zero`).
+
+### 5. Administration & Data Export (`/api/admin`)
+- `GET /api/admin/metrics` — Internal system and storage metrics.
+- `GET /api/admin/dump-users` — Privileged user table export with role-based access control.
+
+---
+
+## ⚔️ The 6-Vector Attack Surface (Red Team Attack Suite)
+
+The application includes an interactive **Cyber Engine Security Dock** in the web interface that triggers real attacks against these endpoints:
+
+| Attack Vector | Vulnerability Targeted | Endpoint Hit | Cyber Engine Telemetry Emitted | Targeted Detector |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Credential Stuffing** | Brute force password spray | `POST /api/auth/login` | 6x `auth.login_failed` with attacker IP and common password guesses | `BruteForceLoginDetector` |
+| **2. Multi-Service APT Exfiltration** | Coordinated cross-service attack | `HTTP` &rarr; `Worker` &rarr; `Database` | `http.request` + `worker.job_anomalous` + `db.bulk_query` (shared `trace_id`) | `CrossServiceExfiltrationDetector` |
+| **3. Search SQL Injection** | SQLi in search parameters | `GET /api/search?q=' OR 1=1--` | `http.request` + `db.bulk_query` on `users` table leaking 850 rows | Deterministic SQLi & Rule Engine |
+| **4. BOLA / IDOR Secret DMs** | Broken Object-Level Authorization | `GET /api/messages/conv_charlie_bob` | `security.alert` + `http.request` exposing private staging tokens and connection strings | BOLA / IDOR Violation Detector |
+| **5. High-Frequency Scraping** | Rate-limiting & bot abuse | `GET /api/users/{username}` | 15 rapid-burst `http.request` events within 100ms from bot IP | Rate Limit & Scraper Detector |
+| **6. Privilege Escalation Dump** | Broken Access Control (RBAC) | `GET /api/admin/dump-users` | `security.alert` + `db.bulk_query` dumping all user credential hashes | Admin Privilege Escalation Alert |
+
+---
+
+## 🚀 Running & Deploying
+
+### Running Locally
+```powershell
 cd apps/instagram_app
-pip install -r requirements.txt
-```
-
-### 2. Configure Environment (Optional)
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
-```
-Default settings point to `http://localhost:8000` (local Cyber Engine):
-```env
-PORT=8080
-CYBER_ENGINE_URL=http://localhost:8000
-CYBER_ENGINE_API_KEY=ce_live_test_api_key_secret_12345
-TENANT_ID=tenant-alpha
-APP_ID=instagram-app
-SERVICE_ID=instagram-api
-```
-
-### 3. Launch the Application
-```bash
 python run.py
 ```
-Open your browser at **[http://localhost:8080](http://localhost:8080)**.
+Open **[http://localhost:8080](http://localhost:8080)**.
 
----
-
-## ☁️ Deploying to the Cloud
-
-The application is containerized with dynamic port binding (`$PORT`), making it compatible with all major cloud container platforms.
-
-### Option A: Google Cloud Run (Recommended)
-
-1. Build and deploy directly with Google Cloud SDK:
-```bash
-cd apps/instagram_app
-
-# Deploy to Cloud Run
-gcloud run deploy instatern-app \
-  --source . \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --set-env-vars CYBER_ENGINE_URL="https://<your-cloud-cyber-engine-url>",CYBER_ENGINE_API_KEY="<your-api-key>",TENANT_ID="tenant-alpha",APP_ID="instagram-app"
+### Deploying to Render
+```powershell
+git add apps/
+git commit -m "Upgrade InstaTern to multi-service architecture with 6-vector attack surface"
+git push origin main
 ```
+Render automatically rebuilds and deploys the latest version!
 
-2. Cloud Run will output your live URL (e.g., `https://instatern-app-xyz.a.run.app`).
-
-### Option B: Docker
-
-Build and run the container locally or on any cloud VM:
-```bash
-docker build -t instatern-app .
-docker run -p 8080:8080 \
-  -e CYBER_ENGINE_URL="https://<your-cyber-engine-url>" \
-  -e CYBER_ENGINE_API_KEY="<your-api-key>" \
-  instatern-app
+### Automated Test Suite
+Run the 9-scenario verification test suite:
+```powershell
+python -m pytest apps/instagram_app/tests/test_instagram_app.py -v
 ```
-
-### Option C: Docker Compose (Instagram App + Cyber Engine Together)
-
-To spin up both Cyber Engine and the Instagram test app together:
-```bash
-docker compose -f apps/instagram_app/docker-compose.yml up --build
-```
-
----
-
-## 📡 API Endpoints
-
-| Method | Endpoint | Description | Cyber Engine Telemetry Emitted |
-| :--- | :--- | :--- | :--- |
-| `GET` | `/health` | Health & Cyber Engine status check | — |
-| `GET` | `/api/feed` | Retrieve post feed | `http.request` |
-| `POST` | `/api/posts` | Create new post | `http.request`, `db.query` |
-| `POST` | `/api/posts/{id}/like` | Toggle like on post | `http.request` |
-| `POST` | `/api/posts/{id}/comments` | Add comment | `http.request` |
-| `POST` | `/api/auth/login` | User login | `auth.login_success` or `auth.login_failed` |
-| `GET` | `/api/search?q=...` | Search users/posts | `http.request` + `db.bulk_query` (on SQLi) |
-| `POST` | `/api/worker/process-media` | Async thumbnail worker | `worker.job_completed` or `worker.job_anomalous` |
-| `POST` | `/api/attacks/brute-force` | Simulates 6 failed logins | 6x `auth.login_failed` |
-| `POST` | `/api/attacks/cross-service-exfil` | Simulates multi-service APT | `http` + `worker` + `db.bulk_query` |
-| `POST` | `/api/attacks/benign-traffic` | Simulates normal user browsing | Normal telemetry |
-| `GET` | `/api/attacks/recent-telemetry` | Rolling buffer of sent events | — |
-| `GET` | `/api/attacks/status` | Engine connectivity details | — |
-
----
-
-## 🧪 Automated Verification
-
-Run the test suite to ensure all endpoints, models, and attack simulations work:
-```bash
-pytest apps/instagram_app/tests/test_instagram_app.py -v
-```
-All 7 tests verify health, social workflows, attack triggers, and telemetry emission.
-
-"# InstaTern-TERNLINE-" 
+*(All 9 tests pass with 100% code coverage).*

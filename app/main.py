@@ -9,13 +9,15 @@ from .config import settings
 from .telemetry import telemetry
 from .routes.auth import router as auth_router
 from .routes.feed import router as feed_router
+from .routes.messages import router as messages_router
+from .routes.admin import router as admin_router
 from .routes.search import router as search_router
 from .routes.worker import router as worker_router
 from .routes.attacks import router as attacks_router
 
 app = FastAPI(
-    title="InstaTern",
-    description="Instagram-like social application instrumented for Cyber Engine security testing",
+    title="InstaTern — Advanced Multi-Service Social Platform",
+    description="Full-scale Instagram microservice architecture instrumented for Cyber Engine security testing",
     version=settings.version,
 )
 
@@ -38,9 +40,11 @@ if os.path.exists(static_dir):
 
 templates = Jinja2Templates(directory=templates_dir)
 
-# Register routes
+# Register all modular routers
 app.include_router(auth_router)
 app.include_router(feed_router)
+app.include_router(messages_router)
+app.include_router(admin_router)
 app.include_router(search_router)
 app.include_router(worker_router)
 app.include_router(attacks_router)
@@ -63,7 +67,7 @@ async def home(request: Request):
 
 @app.get("/health")
 async def health():
-    """Health check endpoint for Cloud Run, ECS, or Kubernetes readiness/liveness probes."""
+    """Health check endpoint for Cloud Run, Render, or Kubernetes readiness/liveness probes."""
     conn = await telemetry.check_connection()
     return {
         "status": "healthy",
@@ -72,4 +76,3 @@ async def health():
         "port": settings.port,
         "cyber_engine_connection": conn,
     }
-
