@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_name }} — Instrumented Social Platform</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+  <!-- Instagram Header -->
+  <header class="insta-header">
+    <div class="header-container">
+      <div class="logo-area">
+        <span class="logo-text">{{ app_name }}</span>
+        <span class="badge-tag">CYBER ENGINE READY</span>
+      </div>
+
+      <div class="search-box">
+        <span class="search-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        </span>
+        <input type="text" id="searchInput" placeholder="Search (or test ' OR 1=1)" />
+      </div>
+
+      <div class="nav-actions">
+        <button class="nav-icon-btn" title="Home" onclick="fetchFeed()">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+        </button>
+        <button class="nav-icon-btn" title="Create New Post" onclick="openCreatePostModal()">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+        </button>
+        <button class="nav-icon-btn" title="Notifications">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+        </button>
+        <div class="user-pill" id="userPill" onclick="openSwitchUserModal()" title="Switch User">
+          <span>Loading...</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Body Layout -->
+  <main class="main-wrapper">
+    <!-- Left: Stories & Feed -->
+    <div class="feed-column">
+      <!-- Stories Bar -->
+      <section class="stories-card" id="storiesContainer">
+        <!-- Rendered via JS -->
+      </section>
+
+      <!-- Posts Feed -->
+      <section class="feed-list" id="feedContainer">
+        <!-- Rendered via JS -->
+      </section>
+    </div>
+
+    <!-- Right: Sidebar & Cyber Engine Threat Simulator -->
+    <aside class="sidebar-column">
+      <!-- User Profile Card -->
+      <div id="sidebarUserProfile">
+        <!-- Rendered via JS -->
+      </div>
+
+      <!-- Cyber Engine Threat Simulator Panel -->
+      <div class="simulator-panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-lime)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+            <span>Cyber Engine Dock</span>
+          </div>
+          <div class="status-indicator" id="ceStatusBadge">
+            <span class="dot-pulse" id="ceStatusDot"></span>
+            <span id="ceStatusText">CONNECTING...</span>
+          </div>
+        </div>
+
+        <div class="config-stats">
+          <div class="config-row"><span>Engine URL:</span><b>{{ cyber_engine_url }}</b></div>
+          <div class="config-row"><span>App ID:</span><b>{{ app_id }}</b></div>
+          <div class="config-row"><span>Tenant:</span><b>{{ tenant_id }}</b></div>
+        </div>
+
+        <div style="font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">
+          Live Attack Generators
+        </div>
+
+        <div class="attack-buttons">
+          <button class="attack-btn danger" id="btnBruteForce" onclick="triggerBruteForceAttack()">
+            <div>
+              <div>⚡ Brute Force Attack</div>
+              <div class="attack-meta">6 failed logins &bull; BruteForceLoginDetector</div>
+            </div>
+            <span>Fire &rarr;</span>
+          </button>
+
+          <button class="attack-btn danger" id="btnAptExfil" onclick="triggerAptExfilAttack()">
+            <div>
+              <div>🚨 APT Exfiltration Sequence</div>
+              <div class="attack-meta">HTTP + Worker + DB Bulk Exfil</div>
+            </div>
+            <span>Fire &rarr;</span>
+          </button>
+
+          <button class="attack-btn warning" onclick="triggerSearchSqli()">
+            <div>
+              <div>🔍 Search SQL Injection</div>
+              <div class="attack-meta">' OR 1=1 &bull; 850 rows exfiltrated</div>
+            </div>
+            <span>Test &rarr;</span>
+          </button>
+
+          <button class="attack-btn success" onclick="triggerBenignTraffic()">
+            <div>
+              <div>✅ Normal Benign Traffic</div>
+              <div class="attack-meta">Browse, Like, Comment &bull; 0 FP</div>
+            </div>
+            <span>Send &rarr;</span>
+          </button>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <span style="font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Telemetry Stream</span>
+          <span style="font-size:10px; font-family:var(--font-mono); color:var(--text-dim);" id="tickerCount">Live</span>
+        </div>
+
+        <div class="telemetry-ticker" id="telemetryTicker">
+          <!-- Live events streamed here -->
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Create Post Modal -->
+  <div class="modal-overlay" id="createPostModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <strong>Create New Post</strong>
+        <button class="nav-icon-btn" onclick="closeCreatePostModal()">✕</button>
+      </div>
+      <form id="createPostForm" style="display:flex; flex-direction:column; gap:12px;">
+        <div class="form-group">
+          <label>Image URL</label>
+          <input type="url" id="newPostImage" required placeholder="https://images.unsplash.com/..." value="https://images.unsplash.com/photo-1510519138197-06b8f2a09616?w=900&auto=format&fit=crop" />
+        </div>
+        <div class="form-group">
+          <label>Caption</label>
+          <textarea id="newPostCaption" rows="3" required placeholder="Write a caption..."></textarea>
+        </div>
+        <div class="form-group">
+          <label>Tags (comma-separated)</label>
+          <input type="text" id="newPostTags" placeholder="cloud, cyber, ai" value="security, devops, testing" />
+        </div>
+        <button type="submit" class="btn-primary" style="margin-top:6px;">Share Post</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Switch User Modal -->
+  <div class="modal-overlay" id="switchUserModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <strong>Switch Demo Account</strong>
+        <button class="nav-icon-btn" onclick="closeSwitchUserModal()">✕</button>
+      </div>
+      <div id="switchUserList">
+        <!-- Rendered via JS -->
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
+

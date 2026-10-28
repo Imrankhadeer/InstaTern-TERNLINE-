@@ -1,0 +1,35 @@
+version: "3.9"
+
+services:
+  # 1. Instagram Test Application (Victim / Target Application)
+  instagram-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: instatern-victim-app
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - CYBER_ENGINE_URL=http://cyber-engine:8000
+      - CYBER_ENGINE_API_KEY=ce_live_test_api_key_secret_12345
+      - TENANT_ID=tenant-alpha
+      - APP_ID=instagram-app
+      - SERVICE_ID=instagram-api
+    depends_on:
+      - cyber-engine
+    restart: unless-stopped
+
+  # 2. Cyber Engine (Security Intelligence Platform)
+  cyber-engine:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: cyber-engine-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=development
+      - PORT=8000
+    restart: unless-stopped
+
