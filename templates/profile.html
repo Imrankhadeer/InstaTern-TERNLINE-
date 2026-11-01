@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>@{{ target_username }} — {{ app_name }}</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+
+  <!-- App Header -->
+  <header class="insta-header">
+    <div class="header-container">
+      <div class="logo-area">
+        <a href="/" class="logo-text">{{ app_name }}</a>
+      </div>
+
+      <div class="search-box">
+        <span class="search-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        </span>
+        <input type="text" id="searchInput" placeholder="Search creators, #hashtags..." autocomplete="off" />
+        <div id="searchResultsDropdown" class="search-dropdown" style="display:none;"></div>
+      </div>
+
+      <div class="nav-actions">
+        <button class="nav-icon-btn" title="Home Feed" onclick="window.location.href='/'">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+        </button>
+        <button class="nav-icon-btn" title="Direct Messages" onclick="window.location.href='/?open=dms'">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+        </button>
+        <div class="user-pill" id="userPill">
+          <span>Loading...</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Profile Container -->
+  <main class="profile-main">
+    <div class="profile-header-card" id="profileHeaderCard">
+      <div class="profile-loading">Loading profile...</div>
+    </div>
+
+    <!-- Analytics Dashboard Bar -->
+    <div class="analytics-card" id="analyticsCard" style="display:none;">
+      <!-- Hydrated via JS -->
+    </div>
+
+    <!-- Profile Tabs -->
+    <div class="profile-tabs">
+      <button class="profile-tab active" id="tabPosts" onclick="switchProfileTab('posts')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+        POSTS
+      </button>
+      <button class="profile-tab" id="tabSaved" onclick="switchProfileTab('saved')" style="display:none;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
+        SAVED
+      </button>
+      <button class="profile-tab" id="tabAnalytics" onclick="toggleAnalyticsView()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+        ANALYTICS
+      </button>
+    </div>
+
+    <!-- Posts Grid -->
+    <div class="profile-posts-grid" id="profilePostsGrid">
+      <!-- Grid rendered via JS -->
+    </div>
+  </main>
+
+  <!-- Edit Profile Modal -->
+  <div class="modal-overlay" id="editProfileModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <strong>Edit Profile</strong>
+        <button class="nav-icon-btn" onclick="closeEditProfileModal()">✕</button>
+      </div>
+      <form id="editProfileForm" onsubmit="saveProfileChanges(event)" style="display:flex; flex-direction:column; gap:12px;">
+        <div class="form-group">
+          <label>Full Name</label>
+          <input type="text" id="editFullName" required />
+        </div>
+        <div class="form-group">
+          <label>Bio</label>
+          <textarea id="editBio" rows="3"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Website</label>
+          <input type="url" id="editWebsite" placeholder="https://..." />
+        </div>
+        <div class="form-group">
+          <label>Avatar URL</label>
+          <input type="url" id="editAvatarUrl" />
+        </div>
+        <button type="submit" class="btn-primary" style="margin-top:6px;">Save Changes</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const TARGET_USER = "{{ target_username }}";
+  </script>
+  <script src="/static/js/profile.js"></script>
+</body>
+</html>

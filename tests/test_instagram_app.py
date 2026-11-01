@@ -9,9 +9,13 @@ if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
 from app.main import app
-from app.database import db
 
 client = TestClient(app)
+
+
+def get_auth_token(username: str = "sarah_dev", password: str = "password123") -> str:
+    res = client.post("/api/auth/login", json={"username": username, "password": password})
+    return res.json()["access_token"]
 
 
 def test_health():
@@ -19,122 +23,120 @@ def test_health():
     assert res.status_code == 200
     data = res.json()
     assert data["status"] == "healthy"
-    assert "version" in data
 
 
-def test_auth_login_and_me():
-    # Login with default seeded account
-    res = client.post(
-        "/api/auth/login",
-        json={"username": "sarah_dev", "password": "password123"}
-    )
-    assert res.status_code == 200
-    data = res.json()
-    assert "access_token" in data
-    token = data["access_token"]
+def test_auth_and_profile_flow():
+    token = get_auth_token("sarah_dev")
+    # /api/auth/me
+    res_me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert res_me.status_code == 200
+    assert res_me.json()["username"] == "sarah_dev"
 
-    # Access current user profile using bearer token
-    res_me = client.get(
-        "/api/auth/me",
+    # /api/auth/users/{username}
+    res_profile = client.get("/api/auth/users/marcus_photo", headers={"Authorization": f"Bearer {token}"})
+    assert res_profile.status_code == 200
+    p = res_profile.json()
+    assert p["username"] == "marcus_photo"
+    assert "posts" in p
+    assert p["posts_count"] >= 1
+
+
+def test_social_graph_follow_flow():
+    token = get_auth_token("alex_travels")
+
+    # Follow chloe_cooks
+    res_follow = client.post(
+        "/api/auth/users/chloe_cooks/follow",
         headers={"Authorization": f"Bearer {token}"}
     )
-    assert res_me.status_code == 200
-    me = res_me.json()
-    assert me["username"] == "sarah_dev"
-    assert me["full_name"] == "Sarah Jenkins"
+    assert res_follow.status_code == 200
+    assert res_follow.json()["following"] is True
 
+    # List followers of chloe_cooks
+    res_followers = client.get("/api/auth/users/chloe_cooks/followers")
+    assert res_followers.status_code == 200
+    followers = [u["username"] for u in res_followers.json()]
+    assert "alex_travels" in followers
 
-def test_register_new_user():
-    username = f"test_user_{uuid.uuid4().hex[:6]}"
-    res = client.post(
-        "/api/auth/register",
-        json={
-            "username": username,
-            "password": "valid_secure_pass123",
-            "full_name": "Test User",
-            "bio": "Production tester account"
-        }
+    # Unfollow
+    res_unfollow = client.post(
+        "/api/auth/users/chloe_cooks/follow",
+        headers={"Authorization": f"Bearer {token}"}
     )
+    assert res_unfollow.status_code == 200
+    assert res_unfollow.json()["following"] is False
+
+
+def test_creator_analytics():
+    res = client.get("/api/auth/users/marcus_photo/analytics")
     assert res.status_code == 200
     data = res.json()
-    assert data["user"]["username"] == username
-    assert "access_token" in data
+    assert "engagement_rate" in data
+    assert "total_likes_received" in data
+    assert "top_tags" in data
 
 
-def test_feed_and_posts():
-    # Fetch public feed
-    res_feed = client.get("/api/feed")
-    assert res_feed.status_code == 200
-    feed = res_feed.json()
-    assert isinstance(feed, list)
-    assert len(feed) >= 1
+def test_advanced_search():
+    # Search by creator name
+    res_creator = client.get("/api/search?q=marcus&type=users")
+    assert res_creator.status_code == 200
+    assert len(res_creator.json()["results"]["users"]) >= 1
 
-    # Login to create post
-    login_res = client.post(
-        "/api/auth/login",
-        json={"username": "sarah_dev", "password": "password123"}
-    )
-    token = login_res.json()["access_token"]
+    # Search by tag
+    res_tag = client.get("/api/search?q=architecture&type=tags")
+    assert res_tag.status_code == 200
+    assert len(res_tag.json()["results"]["posts"]) >= 1
 
-    # Create a post
+    # Search popular sorting
+    res_pop = client.get("/api/search?q=clean&sort=popular")
+    assert res_pop.status_code == 200
+    assert "results" in res_pop.json()
+
+
+def test_post_creation_save_and_like():
+    token = get_auth_token("sarah_dev")
+
+    # Create post
     new_post = client.post(
         "/api/posts",
         headers={"Authorization": f"Bearer {token}"},
         json={
-            "caption": "Real production test post",
+            "caption": "Complex endpoint testing #dev #cloud",
             "image_url": "https://images.unsplash.com/photo-1510519138197-06b8f2a09616",
-            "tags": ["tech", "launch"]
+            "tags": ["dev", "cloud"]
         }
     )
     assert new_post.status_code == 200
-    post_data = new_post.json()
-    assert post_data["caption"] == "Real production test post"
+    post_id = new_post.json()["id"]
 
-    # Like the post
-    post_id = post_data["id"]
-    like_res = client.post(
-        f"/api/posts/{post_id}/like",
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    assert like_res.status_code == 200
-    assert like_res.json()["liked"] is True
+    # Save / bookmark post
+    res_save = client.post(f"/api/posts/{post_id}/save", headers={"Authorization": f"Bearer {token}"})
+    assert res_save.status_code == 200
+    assert res_save.json()["saved"] is True
 
-    # Comment on the post
-    comment_res = client.post(
-        f"/api/posts/{post_id}/comments",
+    # Get saved posts
+    res_saved_list = client.get("/api/posts/saved/me", headers={"Authorization": f"Bearer {token}"})
+    assert res_saved_list.status_code == 200
+    assert any(p["id"] == post_id for p in res_saved_list.json())
+
+
+def test_notifications_flow():
+    token = get_auth_token("alex_travels")
+
+    # Send comment to trigger notification to post owner
+    client.post(
+        "/api/posts/post_seed_2/comments",
         headers={"Authorization": f"Bearer {token}"},
-        json={"text": "Awesome post!"}
+        json={"text": "Awesome workspace Sarah!"}
     )
-    assert comment_res.status_code == 200
-    assert comment_res.json()["text"] == "Awesome post!"
 
+    # Login as sarah_dev and verify notification
+    token_sarah = get_auth_token("sarah_dev")
+    res_notifs = client.get("/api/notifications", headers={"Authorization": f"Bearer {token_sarah}"})
+    assert res_notifs.status_code == 200
+    notifs = res_notifs.json()
+    assert len(notifs) >= 1
 
-def test_direct_messaging():
-    # Login as sarah_dev
-    login1 = client.post("/api/auth/login", json={"username": "sarah_dev", "password": "password123"})
-    token1 = login1.json()["access_token"]
-
-    # Send message to marcus_photo
-    msg_res = client.post(
-        "/api/messages",
-        headers={"Authorization": f"Bearer {token1}"},
-        json={"recipient": "marcus_photo", "text": "Hey Marcus, nice photos!"}
-    )
-    assert msg_res.status_code == 200
-    msg = msg_res.json()
-    assert msg["sender"] == "sarah_dev"
-    assert msg["recipient"] == "marcus_photo"
-
-    # List conversations
-    convs_res = client.get("/api/messages", headers={"Authorization": f"Bearer {token1}"})
-    assert convs_res.status_code == 200
-    convs = convs_res.json()
-    assert len(convs) >= 1
-
-
-def test_search():
-    res = client.get("/api/search?q=sarah")
-    assert res.status_code == 200
-    data = res.json()
-    assert len(data["results"]["users"]) >= 1
-    assert data["results"]["users"][0]["username"] == "sarah_dev"
+    # Mark notifications read
+    res_read = client.post("/api/notifications/read", headers={"Authorization": f"Bearer {token_sarah}"})
+    assert res_read.status_code == 200

@@ -13,11 +13,10 @@ from .routes.search import router as search_router
 
 app = FastAPI(
     title=settings.app_name,
-    description="Clean, production-ready social media platform",
+    description="Clean, production-ready social media platform with complex endpoints",
     version=settings.version,
 )
 
-# CORS configuration
 raw_cors = os.getenv("ALLOWED_CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000")
 origins = [o.strip() for o in raw_cors.split(",") if o.strip()]
 app.add_middleware(
@@ -28,7 +27,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files and templates
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 static_dir = os.path.join(base_dir, "static")
 templates_dir = os.path.join(base_dir, "templates")
@@ -38,7 +36,7 @@ if os.path.exists(static_dir):
 
 templates = Jinja2Templates(directory=templates_dir)
 
-# Register routers
+# Register API routes
 app.include_router(auth_router)
 app.include_router(feed_router)
 app.include_router(messages_router)
@@ -62,6 +60,16 @@ async def login_page(request: Request):
         request=request,
         name="login.html",
         context={"app_name": settings.app_name},
+    )
+
+
+@app.get("/profile/{username}", response_class=HTMLResponse)
+async def profile_page(request: Request, username: str):
+    """Renders the dedicated user profile page."""
+    return templates.TemplateResponse(
+        request=request,
+        name="profile.html",
+        context={"app_name": settings.app_name, "target_username": username},
     )
 
 
