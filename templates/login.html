@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{ app_name }} — Log In or Sign Up</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body class="auth-body">
+  <div class="auth-container">
+    <div class="auth-card">
+      <div class="auth-logo">{{ app_name }}</div>
+      <p class="auth-subtext">Sign in to share moments with friends and discover creators.</p>
+
+      <div class="auth-tabs">
+        <button id="tabLogin" class="auth-tab active" onclick="switchAuthTab('login')">Log In</button>
+        <button id="tabRegister" class="auth-tab" onclick="switchAuthTab('register')">Sign Up</button>
+      </div>
+
+      <div id="authAlert" class="auth-alert" style="display:none;"></div>
+
+      <!-- Login Form -->
+      <form id="loginForm" class="auth-form" onsubmit="handleLogin(event)">
+        <div class="form-group">
+          <input type="text" id="loginUsername" placeholder="Username" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <input type="password" id="loginPassword" placeholder="Password" required autocomplete="current-password" />
+        </div>
+        <button type="submit" class="btn-primary auth-submit-btn" id="loginSubmitBtn">Log In</button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="registerForm" class="auth-form" onsubmit="handleRegister(event)" style="display:none;">
+        <div class="form-group">
+          <input type="text" id="regFullName" placeholder="Full Name" required />
+        </div>
+        <div class="form-group">
+          <input type="text" id="regUsername" placeholder="Username (letters, numbers, _)" required autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <input type="password" id="regPassword" placeholder="Password (min 6 characters)" required autocomplete="new-password" />
+        </div>
+        <div class="form-group">
+          <input type="text" id="regBio" placeholder="Bio (optional)" />
+        </div>
+        <button type="submit" class="btn-primary auth-submit-btn" id="regSubmitBtn">Sign Up</button>
+      </form>
+
+      <div class="auth-demo-hint">
+        <span>Default accounts: <b>sarah_dev</b>, <b>marcus_photo</b>, or <b>emily_style</b> (Password: <code>password123</code>)</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function switchAuthTab(mode) {
+      const tabLogin = document.getElementById("tabLogin");
+      const tabRegister = document.getElementById("tabRegister");
+      const loginForm = document.getElementById("loginForm");
+      const registerForm = document.getElementById("registerForm");
+      const alertBox = document.getElementById("authAlert");
+      alertBox.style.display = "none";
+
+      if (mode === "login") {
+        tabLogin.classList.add("active");
+        tabRegister.classList.remove("active");
+        loginForm.style.display = "flex";
+        registerForm.style.display = "none";
+      } else {
+        tabLogin.classList.remove("active");
+        tabRegister.classList.add("active");
+        loginForm.style.display = "none";
+        registerForm.style.display = "flex";
+      }
+    }
+
+    function showAlert(message, isError = true) {
+      const alertBox = document.getElementById("authAlert");
+      alertBox.textContent = message;
+      alertBox.className = "auth-alert " + (isError ? "alert-danger" : "alert-success");
+      alertBox.style.display = "block";
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const username = document.getElementById("loginUsername").value.trim();
+      const password = document.getElementById("loginPassword").value;
+      const btn = document.getElementById("loginSubmitBtn");
+      btn.disabled = true;
+      btn.textContent = "Logging in...";
+
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showAlert(data.detail || "Login failed");
+        } else {
+          localStorage.setItem("access_token", data.access_token);
+          window.location.href = "/";
+        }
+      } catch (err) {
+        showAlert("Network error. Please try again.");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Log In";
+      }
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      const full_name = document.getElementById("regFullName").value.trim();
+      const username = document.getElementById("regUsername").value.trim();
+      const password = document.getElementById("regPassword").value;
+      const bio = document.getElementById("regBio").value.trim();
+      const btn = document.getElementById("regSubmitBtn");
+      btn.disabled = true;
+      btn.textContent = "Creating account...";
+
+      try {
+        const res = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password, full_name, bio })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showAlert(data.detail || "Registration failed");
+        } else {
+          localStorage.setItem("access_token", data.access_token);
+          window.location.href = "/";
+        }
+      } catch (err) {
+        showAlert("Network error. Please try again.");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Sign Up";
+      }
+    }
+  </script>
+</body>
+</html>
+

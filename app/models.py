@@ -1,6 +1,5 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime
 
 
 class User(BaseModel):
@@ -8,12 +7,12 @@ class User(BaseModel):
     username: str
     full_name: str
     avatar_url: str
-    bio: str
+    bio: str = ""
     followers_count: int = 0
     following_count: int = 0
     is_verified: bool = False
     is_private: bool = False
-    role: str = "user"  # "user" or "admin"
+    role: str = "user"
 
 
 class Comment(BaseModel):
@@ -28,13 +27,20 @@ class Post(BaseModel):
     id: str
     author: User
     image_url: str
-    caption: str
+    caption: str = ""
     likes_count: int = 0
     comments_count: int = 0
     comments: List[Comment] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     created_at: str
     is_liked: bool = False
+
+
+class Story(BaseModel):
+    id: str
+    author: User
+    media_url: str
+    created_at: str
 
 
 class DirectMessage(BaseModel):
@@ -44,7 +50,6 @@ class DirectMessage(BaseModel):
     recipient: str
     text: str
     timestamp: str
-    is_sensitive: bool = False
 
 
 class Conversation(BaseModel):
@@ -55,14 +60,7 @@ class Conversation(BaseModel):
     messages: List[DirectMessage] = Field(default_factory=list)
 
 
-class Story(BaseModel):
-    id: str
-    author: User
-    media_url: str
-    is_seen: bool = False
-    created_at: str
-
-
+# Requests / Responses
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -98,4 +96,3 @@ class ProfileUpdateRequest(BaseModel):
     full_name: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
-    is_private: Optional[bool] = None

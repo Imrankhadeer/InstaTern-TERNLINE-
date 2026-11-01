@@ -1,4 +1,4 @@
-// InstaTern - Frontend JavaScript & Cyber Engine Live Telemetry
+// InstaTern - Frontend JavaScript
 
 const state = {
   currentUser: null,
@@ -6,34 +6,46 @@ const state = {
   stories: [],
   conversations: [],
   activeConversationId: null,
-  telemetryEvents: [],
-  connected: false,
+  activeRecipient: null,
 };
+
+function getAuthHeader() {
+  const token = localStorage.getItem("access_token");
+  return token ? { "Authorization": `Bearer ${token}` } : {};
+}
 
 // --- Initialization ---
 document.addEventListener("DOMContentLoaded", () => {
   initApp();
   setupEventListeners();
-  startTelemetryPolling();
 });
 
 async function initApp() {
-  await Promise.all([
-    fetchCurrentUser(),
-    fetchStories(),
-    fetchFeed(),
-    checkCyberEngineStatus(),
-    fetchRecentTelemetry(),
-  ]);
+  await fetchCurrentUser();
+  if (state.currentUser) {
+    await Promise.all([
+      fetchStories(),
+      fetchFeed(),
+      fetchSuggestions(),
+    ]);
+  }
 }
 
 function setupEventListeners() {
-  // Search box listener (triggers normal or SQLi search)
   const searchInput = document.getElementById("searchInput");
   if (searchInput) {
-    searchInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        executeSearch(searchInput.value);
+    let debounceTimeout = null;
+    searchInput.addEventListener("input", (e) => {
+      clearTimeout(debounceTimeout);
+      debounceTimeout = setTimeout(() => {
+        executeSearch(e.target.value);
+      }, 300);
+    });
+    // Close dropdown on outside click
+    document.addEventListener("click", (e) => {
+      if (!searchInput.contains(e.target)) {
+        const dropdown = document.getElementById("searchResultsDropdown");
+        if (dropdown) dropdown.style.display = "none";
       }
     });
   }
@@ -61,19 +73,27 @@ function setupEventListeners() {
 
 async function fetchCurrentUser() {
   try {
-    const res = await fetch("/api/auth/me");
+    const res = await fetch("/api/auth/me", {
+      headers: { ...getAuthHeader() }
+    });
     if (res.ok) {
       state.currentUser = await res.json();
       renderCurrentUser();
+    } else {
+      // Unauthorized -> redirect to login
+      window.location.href = "/login";
     }
   } catch (err) {
     console.error("Error fetching current user:", err);
+    window.location.href = "/login";
   }
 }
 
 async function fetchStories() {
   try {
-    const res = await fetch("/api/stories");
+    const res = await fetch("/api/stories", {
+      headers: { ...getAuthHeader() }
+    });
     if (res.ok) {
       state.stories = await res.json();
       renderStories();
@@ -85,7 +105,9 @@ async function fetchStories() {
 
 async function fetchFeed() {
   try {
-    const res = await fetch("/api/feed");
+    const res = await fetch("/api/feed", {
+      headers: { ...getAuthHeader() }
+    });
     if (res.ok) {
       state.posts = await res.json();
       renderFeed();
@@ -95,307 +117,196 @@ async function fetchFeed() {
   }
 }
 
-async function checkCyberEngineStatus() {
+async function fetchSuggestions() {
   try {
-    const res = await fetch("/api/attacks/status");
+    const res = await fetch("/api/search?q=", {
+      headers: { ...getAuthHeader() }
+    });
+    // We can also fetch search results for random creators
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+async function toggleLike(postId, buttonEl) {
+  try {
+    const res = await fetch(`/api/posts/${postId}/like`, {
+      method: "POST",
+      headers: { ...getAuthHeader() }
+    });
     if (res.ok) {
       const data = await res.json();
-      const isOnline = data.connection && data.connection.connected;
-      state.connected = isOnline;
+      const countEl = document.getElementById(`likes-count-${postId}`);
+      if (countEl) countEl.textContent = `${data.likes_count} likes`;
 
-      const badge = document.getElementById("ceStatusBadge");
-      const dot = document.getElementById("ceStatusDot");
-      const text = document.getElementById("ceStatusText");
-
-      if (badge && text) {
-        if (isOnline) {
-          text.innerText = "STREAMING (200 OK)";
-          badge.style.color = "var(--accent-lime)";
-          badge.style.borderColor = "rgba(183, 243, 107, 0.4)";
-          if (dot) dot.style.backgroundColor = "var(--accent-lime)";
-        } else {
-          text.innerText = "OFFLINE / BUFFERED";
-          badge.style.color = "var(--warning-amber)";
-          badge.style.borderColor = "rgba(245, 158, 11, 0.4)";
-          if (dot) dot.style.backgroundColor = "var(--warning-amber)";
-        }
+      if (data.liked) {
+        buttonEl.classList.add("liked");
+      } else {
+        buttonEl.classList.remove("liked");
       }
     }
   } catch (err) {
-    console.warn("Cyber Engine status check failed:", err);
+    console.error("Error liking post:", err);
   }
 }
 
-async function fetchRecentTelemetry() {
-  try {
-    const res = await fetch("/api/attacks/recent-telemetry");
-    if (res.ok) {
-      const events = await res.json();
-      renderTelemetryTicker(events);
-    }
-  } catch (err) {
-    console.error("Error polling telemetry:", err);
-  }
-}
-
-function startTelemetryPolling() {
-  setInterval(() => {
-    fetchRecentTelemetry();
-    checkCyberEngineStatus();
-  }, 2500);
-}
-
-// --- Render Functions ---
-
-function renderCurrentUser() {
-  const u = state.currentUser;
-  if (!u) return;
-
-  const userPill = document.getElementById("userPill");
-  if (userPill) {
-    userPill.innerHTML = `
-      <img src="${u.avatar_url}" alt="${u.username}" />
-      <span>@${u.username} (${u.role || 'user'})</span>
-    `;
-  }
-
-  const sidebarUser = document.getElementById("sidebarUserProfile");
-  if (sidebarUser) {
-    sidebarUser.innerHTML = `
-      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
-        <div style="display:flex; align-items:center; gap:12px;">
-          <img src="${u.avatar_url}" style="width:48px; height:48px; border-radius:50%; object-fit:cover;" />
-          <div>
-            <strong>${u.username} ${u.is_verified ? "✓" : ""}</strong>
-            <div style="font-size:12px; color:var(--text-muted);">${u.full_name} &bull; <span style="color:var(--accent-lime);">${u.role.toUpperCase()}</span></div>
-          </div>
-        </div>
-        <button class="nav-icon-btn" onclick="openSwitchUserModal()" style="font-size:12px; color:var(--accent-lime);">Switch</button>
-      </div>
-      <div style="font-size:12px; color:var(--text-dim); margin-bottom:14px; line-height:1.4;">${escapeHtml(u.bio)}</div>
-    `;
-  }
-}
-
-function renderStories() {
-  const container = document.getElementById("storiesContainer");
-  if (!container) return;
-
-  container.innerHTML = state.stories
-    .map(
-      (s) => `
-    <div class="story-item" onclick="viewStory('${s.id}')">
-      <div class="story-ring">
-        <img src="${s.author.avatar_url}" alt="${s.author.username}" />
-      </div>
-      <span class="story-name">${s.author.username}</span>
-    </div>
-  `
-    )
-    .join("");
-}
-
-function renderFeed() {
-  const container = document.getElementById("feedContainer");
-  if (!container) return;
-
-  if (state.posts.length === 0) {
-    container.innerHTML = `<div style="text-align:center; padding:40px; color:var(--text-dim);">No posts yet in feed.</div>`;
-    return;
-  }
-
-  container.innerHTML = state.posts
-    .map(
-      (post) => `
-    <article class="post-card" id="post-${post.id}">
-      <div class="post-header">
-        <div class="post-author">
-          <img src="${post.author.avatar_url}" alt="${post.author.username}" />
-          <div class="author-info">
-            <strong>${post.author.username} ${post.author.is_verified ? "✓" : ""}</strong>
-            <span>${post.created_at}</span>
-          </div>
-        </div>
-        <div style="display:flex; gap:6px;">
-          <button class="nav-icon-btn" title="Delete Post (Tests IDOR/BOLA)" onclick="deletePostWithIdorCheck('${post.id}')" style="color:var(--text-dim); font-size:11px;">🗑️</button>
-        </div>
-      </div>
-
-      <div class="post-image-container">
-        <img src="${post.image_url}" alt="Post Image" loading="lazy" />
-      </div>
-
-      <div class="post-actions">
-        <div class="actions-left">
-          <button class="action-btn ${post.is_liked ? "liked" : ""}" onclick="toggleLike('${post.id}')" title="Like">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="${post.is_liked ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-          </button>
-          <button class="action-btn" onclick="focusCommentInput('${post.id}')" title="Comment">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
-          </button>
-          <button class="action-btn" onclick="sharePost('${post.id}')" title="Share">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-          </button>
-        </div>
-        <button class="action-btn" title="Bookmark">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg>
-        </button>
-      </div>
-
-      <div class="post-content">
-        <div class="likes-stat">${post.likes_count.toLocaleString()} likes</div>
-        <div class="caption-text">
-          <strong>${post.author.username}</strong> ${escapeHtml(post.caption)}
-        </div>
-        ${
-          post.tags && post.tags.length > 0
-            ? `<div class="caption-tags">${post.tags.map((t) => "#" + t).join(" ")}</div>`
-            : ""
-        }
-
-        <div class="comments-list" id="comments-${post.id}">
-          ${(post.comments || [])
-            .map(
-              (c) => `
-            <div class="comment-row">
-              <strong>${c.author.username}</strong> <span>${escapeHtml(c.text)}</span>
-            </div>
-          `
-            )
-            .join("")}
-        </div>
-        <div class="post-time">${post.created_at}</div>
-      </div>
-
-      <div class="add-comment-box">
-        <input type="text" id="comment-input-${post.id}" placeholder="Add a comment..." onkeydown="if(event.key==='Enter') submitComment('${post.id}')" />
-        <button onclick="submitComment('${post.id}')">Post</button>
-      </div>
-    </article>
-  `
-    )
-    .join("");
-}
-
-function renderTelemetryTicker(events) {
-  const ticker = document.getElementById("telemetryTicker");
-  if (!ticker) return;
-
-  if (!events || events.length === 0) {
-    ticker.innerHTML = `<div style="color:var(--text-dim); text-align:center; padding-top:40px;">No telemetry events recorded yet.</div>`;
-    return;
-  }
-
-  ticker.innerHTML = events
-    .slice(0, 30)
-    .map((ev) => {
-      let cls = "accepted";
-      if (ev.severity === "warning") cls = "warning";
-      if (ev.severity === "critical") cls = "critical";
-
-      const timeStr = (ev.timestamp || "").split("T")[1]?.slice(0, 8) || "now";
-      const latencyStr = ev.delivery_latency_ms ? `${ev.delivery_latency_ms}ms` : "";
-
-      return `
-      <div class="ticker-item ${cls}">
-        <div class="ticker-header">
-          <span class="ticker-type">${ev.event_type}</span>
-          <span>${timeStr} (${latencyStr})</span>
-        </div>
-        <div class="ticker-desc" title="${JSON.stringify(ev.attributes || {})}">
-          ${ev.target_resource ? "target: " + ev.target_resource : ""} ${ev.trace_id ? "[" + ev.trace_id.slice(0, 14) + "...]" : ""}
-        </div>
-      </div>
-    `;
-    })
-    .join("");
-}
-
-// --- Interactive Social Actions ---
-
-async function toggleLike(postId) {
-  try {
-    const res = await fetch(`/api/posts/${postId}/like`, { method: "POST" });
-    if (res.ok) {
-      const updated = await res.json();
-      const idx = state.posts.findIndex((p) => p.id === postId);
-      if (idx !== -1) {
-        state.posts[idx] = updated;
-        renderFeed();
-      }
-      fetchRecentTelemetry();
-    }
-  } catch (err) {
-    console.error("Like error:", err);
-  }
-}
-
-async function submitComment(postId) {
-  const input = document.getElementById(`comment-input-${postId}`);
-  if (!input || !input.value.trim()) return;
-
-  const text = input.value.trim();
-  input.value = "";
+async function addComment(postId) {
+  const inputEl = document.getElementById(`comment-input-${postId}`);
+  if (!inputEl) return;
+  const text = inputEl.value.trim();
+  if (!text) return;
 
   try {
     const res = await fetch(`/api/posts/${postId}/comments`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text }),
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify({ text })
     });
-
     if (res.ok) {
-      await fetchFeed();
-      fetchRecentTelemetry();
+      const comment = await res.json();
+      inputEl.value = "";
+      const commentsListEl = document.getElementById(`comments-list-${postId}`);
+      if (commentsListEl) {
+        const cDiv = document.createElement("div");
+        cDiv.className = "comment-item";
+        cDiv.innerHTML = `<b>${escapeHtml(comment.author.username)}</b> ${escapeHtml(comment.text)}`;
+        commentsListEl.appendChild(cDiv);
+      }
     }
   } catch (err) {
-    console.error("Comment submission error:", err);
+    console.error("Error commenting:", err);
   }
 }
 
-function focusCommentInput(postId) {
-  const input = document.getElementById(`comment-input-${postId}`);
-  if (input) input.focus();
-}
+async function submitNewPost() {
+  const imageUrl = document.getElementById("newPostImage").value.trim();
+  const caption = document.getElementById("newPostCaption").value.trim();
+  const tagsRaw = document.getElementById("newPostTags").value;
+  const tags = tagsRaw.split(",").map(t => t.trim()).filter(Boolean);
 
-function sharePost(postId) {
-  navigator.clipboard?.writeText(window.location.origin + `#${postId}`);
-  alert(`Post link copied to clipboard: ${postId}`);
-}
+  if (!imageUrl) return;
 
-async function deletePostWithIdorCheck(postId) {
-  const wantIdor = confirm("Do you want to simulate an unauthorized BOLA/IDOR deletion attack?\n\nClick OK to exploit IDOR (bypass ownership check)\nClick Cancel for normal legitimate check");
   try {
-    const res = await fetch(`/api/posts/${postId}?exploit_idor=${wantIdor}`, { method: "DELETE" });
+    const res = await fetch("/api/posts", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify({ image_url: imageUrl, caption, tags })
+    });
     if (res.ok) {
-      alert(`Post ${postId} deleted! (IDOR Exploit Flag: ${wantIdor})`);
+      closeCreatePostModal();
+      document.getElementById("newPostCaption").value = "";
       await fetchFeed();
-    } else {
-      const err = await res.json();
-      alert(`Delete Denied (403 Forbidden): ${err.detail}`);
     }
-    fetchRecentTelemetry();
-  } catch (e) {
-    alert("Delete error: " + e.message);
+  } catch (err) {
+    console.error("Error creating post:", err);
   }
 }
 
-// --- Direct Messages & BOLA Target ---
+async function submitNewStory() {
+  const mediaUrl = document.getElementById("newStoryMedia").value.trim();
+  if (!mediaUrl) return;
 
+  try {
+    const res = await fetch("/api/stories", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify({ media_url: mediaUrl })
+    });
+    if (res.ok) {
+      closeCreateStoryModal();
+      await fetchStories();
+    }
+  } catch (err) {
+    console.error("Error creating story:", err);
+  }
+}
+
+async function executeSearch(query) {
+  const dropdown = document.getElementById("searchResultsDropdown");
+  if (!dropdown) return;
+
+  if (!query.trim()) {
+    dropdown.style.display = "none";
+    dropdown.innerHTML = "";
+    return;
+  }
+
+  try {
+    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+      headers: { ...getAuthHeader() }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const users = data.results.users || [];
+      const posts = data.results.posts || [];
+
+      if (users.length === 0 && posts.length === 0) {
+        dropdown.innerHTML = `<div class="search-empty">No results found for "${escapeHtml(query)}"</div>`;
+      } else {
+        let html = "";
+        if (users.length > 0) {
+          html += `<div class="search-heading">Accounts</div>`;
+          users.forEach(u => {
+            html += `
+              <div class="search-item" onclick="startDirectMessageWith('${escapeHtml(u.username)}')">
+                <img src="${escapeHtml(u.avatar_url)}" class="search-avatar" />
+                <div class="search-info">
+                  <div class="search-user">${escapeHtml(u.username)}</div>
+                  <div class="search-sub">${escapeHtml(u.full_name)}</div>
+                </div>
+              </div>
+            `;
+          });
+        }
+        if (posts.length > 0) {
+          html += `<div class="search-heading">Posts (${posts.length})</div>`;
+          posts.forEach(p => {
+            html += `
+              <div class="search-item" onclick="document.getElementById('searchInput').value=''; document.getElementById('searchResultsDropdown').style.display='none';">
+                <img src="${escapeHtml(p.image_url)}" class="search-avatar" style="border-radius:4px;" />
+                <div class="search-info">
+                  <div class="search-user">@${escapeHtml(p.author.username)}</div>
+                  <div class="search-sub">${escapeHtml(p.caption.slice(0, 35))}...</div>
+                </div>
+              </div>
+            `;
+          });
+        }
+        dropdown.innerHTML = html;
+      }
+      dropdown.style.display = "block";
+    }
+  } catch (err) {
+    console.error("Search error:", err);
+  }
+}
+
+// --- Direct Messages ---
 async function openMessagesModal() {
   const modal = document.getElementById("messagesModal");
-  if (modal) modal.classList.add("active");
-  await loadConversations();
+  if (modal) modal.style.display = "flex";
+  await fetchConversations();
 }
 
 function closeMessagesModal() {
   const modal = document.getElementById("messagesModal");
-  if (modal) modal.classList.remove("active");
+  if (modal) modal.style.display = "none";
 }
 
-async function loadConversations() {
+async function fetchConversations() {
   try {
-    const res = await fetch("/api/messages");
+    const res = await fetch("/api/messages", {
+      headers: { ...getAuthHeader() }
+    });
     if (res.ok) {
       state.conversations = await res.json();
       renderConversationsList();
@@ -404,348 +315,280 @@ async function loadConversations() {
       }
     }
   } catch (err) {
-    console.error("Error loading conversations:", err);
+    console.error("Error fetching conversations:", err);
   }
 }
 
 function renderConversationsList() {
-  const list = document.getElementById("conversationsList");
-  if (!list) return;
+  const listEl = document.getElementById("conversationsList");
+  if (!listEl) return;
 
-  list.innerHTML = state.conversations
-    .map(
-      (c) => `
-    <div onclick="selectConversation('${c.id}')" style="cursor:pointer; padding:8px; border-radius:8px; background:${state.activeConversationId === c.id ? 'var(--panel-bg)' : 'transparent'}; border:1px solid ${state.activeConversationId === c.id ? 'var(--border-focus)' : 'transparent'};">
-      <div style="font-weight:600; font-size:12px; color:var(--text-main);">${c.participants.join(' & ')}</div>
-      <div style="font-size:11px; color:var(--text-dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${c.last_message}</div>
-    </div>
-  `
-    )
-    .join("");
+  if (state.conversations.length === 0) {
+    listEl.innerHTML = `<div style="font-size:12px; color:var(--text-dim); text-align:center; padding-top:20px;">No messages yet.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = state.conversations.map(c => {
+    const otherUser = c.participants.find(p => p !== state.currentUser?.username) || c.participants[0];
+    const isSelected = c.id === state.activeConversationId;
+    return `
+      <div class="conv-item ${isSelected ? 'active' : ''}" onclick="selectConversation('${c.id}')">
+        <div style="font-weight:600; font-size:13px; color:var(--text-main);">@${escapeHtml(otherUser)}</div>
+        <div style="font-size:11px; color:var(--text-muted); text-overflow:ellipsis; overflow:hidden; white-space:nowrap;">${escapeHtml(c.last_message || 'Active conversation')}</div>
+      </div>
+    `;
+  }).join("");
 }
 
-async function selectConversation(convId, exploitBola = false) {
+function selectConversation(convId) {
   state.activeConversationId = convId;
   renderConversationsList();
+  const conv = state.conversations.find(c => c.id === convId);
+  if (!conv) return;
 
-  const btnTestBola = document.getElementById("btnTestBola");
-  if (btnTestBola) btnTestBola.style.display = "inline-block";
+  const otherUser = conv.participants.find(p => p !== state.currentUser?.username) || conv.participants[0];
+  state.activeRecipient = otherUser;
 
-  try {
-    const res = await fetch(`/api/messages/${convId}?exploit_bola=${exploitBola}`);
-    const header = document.getElementById("threadHeader");
-    const container = document.getElementById("messagesContent");
-
-    if (res.ok) {
-      const conv = await res.json();
-      if (header) header.querySelector("span").innerText = conv.participants.join(" & ");
-      if (container) {
-        container.innerHTML = conv.messages
-          .map(
-            (m) => `
-          <div style="padding:6px 10px; border-radius:8px; background:${m.sender === state.currentUser?.username ? 'rgba(183,243,107,0.1)' : 'var(--panel-bg)'}; border:1px solid ${m.is_sensitive ? 'var(--danger-red)' : 'var(--border-color)'}; align-self:${m.sender === state.currentUser?.username ? 'flex-end' : 'flex-start'}; max-width:85%;">
-            <div style="font-size:10px; color:${m.is_sensitive ? 'var(--danger-red)' : 'var(--text-dim)'}; font-weight:700;">
-              @${m.sender} ${m.is_sensitive ? '🔒 SENSITIVE SECRET EXPOSED' : ''}
-            </div>
-            <div style="font-size:12px; color:var(--text-main); margin-top:2px;">${escapeHtml(m.text)}</div>
-            <div style="font-size:9px; color:var(--text-dim); text-align:right;">${m.timestamp}</div>
-          </div>
-        `
-          )
-          .join("");
-        container.scrollTop = container.scrollHeight;
-      }
-    } else {
-      const err = await res.json();
-      if (container) {
-        container.innerHTML = `<div style="color:var(--danger-red); padding:20px; font-size:12px; text-align:center;">⛔ ${err.detail}</div>`;
-      }
-    }
-    fetchRecentTelemetry();
-  } catch (err) {
-    console.error("Select conversation error:", err);
+  const headerEl = document.getElementById("threadHeader");
+  if (headerEl) {
+    headerEl.innerHTML = `<span>Direct Chat with @${escapeHtml(otherUser)}</span>`;
   }
+
+  renderThreadMessages(conv.messages || []);
 }
 
-async function exploitCurrentThreadBola() {
-  if (!state.activeConversationId) return;
-  alert(`Triggering BOLA/IDOR exploit on ${state.activeConversationId} as @${state.currentUser.username}...`);
-  await selectConversation(state.activeConversationId, true);
+function renderThreadMessages(messages) {
+  const contentEl = document.getElementById("messagesContent");
+  if (!contentEl) return;
+
+  if (messages.length === 0) {
+    contentEl.innerHTML = `<div style="color:var(--text-dim); font-size:12px; text-align:center; margin-top:20px;">No messages yet. Say hello!</div>`;
+    return;
+  }
+
+  contentEl.innerHTML = messages.map(m => {
+    const isMine = m.sender === state.currentUser?.username;
+    return `
+      <div class="dm-bubble ${isMine ? 'mine' : 'theirs'}">
+        <div class="dm-text">${escapeHtml(m.text)}</div>
+        <div class="dm-time">${escapeHtml(m.timestamp)}</div>
+      </div>
+    `;
+  }).join("");
+
+  contentEl.scrollTop = contentEl.scrollHeight;
 }
 
 async function sendCurrentDM() {
-  const input = document.getElementById("dmInput");
-  if (!input || !input.value.trim() || !state.activeConversationId) return;
-
-  const text = input.value.trim();
-  input.value = "";
-
-  const conv = state.conversations.find((c) => c.id === state.activeConversationId);
-  const recipient = conv ? conv.participants.find((p) => p !== state.currentUser.username) || "charlie_vip" : "charlie_vip";
+  const inputEl = document.getElementById("dmInput");
+  if (!inputEl) return;
+  const text = inputEl.value.trim();
+  if (!text || !state.activeRecipient) return;
 
   try {
     const res = await fetch("/api/messages", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recipient, text }),
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeader(),
+      },
+      body: JSON.stringify({ recipient: state.activeRecipient, text })
     });
     if (res.ok) {
-      await selectConversation(state.activeConversationId);
-      await loadConversations();
-      fetchRecentTelemetry();
+      inputEl.value = "";
+      await fetchConversations();
+      if (state.activeConversationId) {
+        selectConversation(state.activeConversationId);
+      }
     }
   } catch (err) {
     console.error("Error sending DM:", err);
   }
 }
 
-// --- Search & SQL Injection ---
+function startDirectMessageWith(username) {
+  // Close search dropdown
+  const dropdown = document.getElementById("searchResultsDropdown");
+  if (dropdown) dropdown.style.display = "none";
 
-async function executeSearch(query) {
-  if (!query) return;
-
-  try {
-    const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-    const data = await res.json();
-
-    if (data.attack_detected_by_app) {
-      alert(
-        `🚨 SIMULATED ATTACK DETECTED!\n\n${data.warning}\n\nLeaked records: ${data.results.leaked_user_rows}\nCheck the Cyber Engine Console for the security finding!`
-      );
-    } else {
-      console.log("Search results:", data.results);
-    }
-    fetchRecentTelemetry();
-  } catch (err) {
-    console.error("Search error:", err);
+  openMessagesModal();
+  state.activeRecipient = username;
+  const headerEl = document.getElementById("threadHeader");
+  if (headerEl) {
+    headerEl.innerHTML = `<span>Direct Chat with @${escapeHtml(username)}</span>`;
+  }
+  const contentEl = document.getElementById("messagesContent");
+  if (contentEl) {
+    contentEl.innerHTML = `<div style="color:var(--text-dim); font-size:12px; text-align:center; margin-top:20px;">Send a message to start chatting with @${escapeHtml(username)}</div>`;
   }
 }
 
-// --- Attack Simulation Triggers ---
+// --- Render UI ---
 
-async function triggerBruteForceAttack() {
-  const btn = document.getElementById("btnBruteForce");
-  if (btn) btn.disabled = true;
+function renderCurrentUser() {
+  const user = state.currentUser;
+  if (!user) return;
 
-  try {
-    const res = await fetch("/api/attacks/brute-force", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target_username: "charlie_vip", attempts: 6 }),
-    });
-    const data = await res.json();
-    alert(`💥 ${data.message}`);
-    await fetchRecentTelemetry();
-  } catch (err) {
-    alert("Attack simulation failed: " + err.message);
-  } finally {
-    if (btn) btn.disabled = false;
+  const userPill = document.getElementById("userPill");
+  if (userPill) {
+    userPill.innerHTML = `
+      <img src="${escapeHtml(user.avatar_url)}" class="pill-avatar" />
+      <span>${escapeHtml(user.username)}</span>
+      <button class="logout-btn" onclick="handleLogout(event)" title="Log out">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+      </button>
+    `;
+  }
+
+  const sidebarProfile = document.getElementById("sidebarUserProfile");
+  if (sidebarProfile) {
+    sidebarProfile.innerHTML = `
+      <div class="sidebar-user-card">
+        <img src="${escapeHtml(user.avatar_url)}" class="profile-big-avatar" />
+        <div class="profile-meta">
+          <div class="profile-username">
+            ${escapeHtml(user.username)}
+            ${user.is_verified ? '<span class="verified-badge">✓</span>' : ''}
+          </div>
+          <div class="profile-name">${escapeHtml(user.full_name)}</div>
+          <div class="profile-bio">${escapeHtml(user.bio || '')}</div>
+          <div class="profile-counts">
+            <span><b>${user.followers_count}</b> followers</span>
+            <span><b>${user.following_count}</b> following</span>
+          </div>
+        </div>
+      </div>
+    `;
   }
 }
 
-async function triggerAptExfilAttack() {
-  const btn = document.getElementById("btnAptExfil");
-  if (btn) btn.disabled = true;
+function renderStories() {
+  const container = document.getElementById("storiesContainer");
+  if (!container) return;
 
-  try {
-    const res = await fetch("/api/attacks/cross-service-exfil", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target_table: "users", rows_affected: 1200 }),
-    });
-    const data = await res.json();
-    alert(`🚨 ${data.message}`);
-    await fetchRecentTelemetry();
-  } catch (err) {
-    alert("Attack simulation failed: " + err.message);
-  } finally {
-    if (btn) btn.disabled = false;
+  let html = `
+    <div class="story-item create-story-circle" onclick="openCreateStoryModal()">
+      <div class="story-ring add-ring">+</div>
+      <span class="story-user">Your Story</span>
+    </div>
+  `;
+
+  state.stories.forEach(s => {
+    html += `
+      <div class="story-item" onclick="viewStory('${escapeHtml(s.media_url)}')">
+        <div class="story-ring">
+          <img src="${escapeHtml(s.author.avatar_url)}" />
+        </div>
+        <span class="story-user">${escapeHtml(s.author.username)}</span>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+function viewStory(url) {
+  window.open(url, "_blank");
+}
+
+function renderFeed() {
+  const container = document.getElementById("feedContainer");
+  if (!container) return;
+
+  if (state.posts.length === 0) {
+    container.innerHTML = `<div class="empty-feed">No posts yet. Be the first to share a moment!</div>`;
+    return;
   }
-}
 
-async function triggerSearchSqli() {
-  const searchInput = document.getElementById("searchInput");
-  if (searchInput) searchInput.value = "' OR 1=1; SELECT * FROM users --";
-  await executeSearch("' OR 1=1; SELECT * FROM users --");
-}
+  container.innerHTML = state.posts.map(p => {
+    const commentsHtml = (p.comments || []).map(c => `
+      <div class="comment-item">
+        <b>${escapeHtml(c.author.username)}</b> ${escapeHtml(c.text)}
+      </div>
+    `).join("");
 
-async function triggerBolaDmTheft() {
-  try {
-    const res = await fetch("/api/attacks/bola-dm-theft", { method: "POST" });
-    const data = await res.json();
-    alert(`🛡️ ${data.message}\n\nCheck Cyber Engine console for BOLA_IDOR_VIOLATION security alert!`);
-    await fetchRecentTelemetry();
-  } catch (e) {
-    alert("BOLA attack error: " + e.message);
-  }
-}
+    const tagsHtml = (p.tags || []).map(t => `<span class="post-tag">#${escapeHtml(t)}</span>`).join(" ");
 
-async function triggerScraperBot() {
-  try {
-    const res = await fetch("/api/attacks/api-scraping", { method: "POST" });
-    const data = await res.json();
-    alert(`🤖 ${data.message}`);
-    await fetchRecentTelemetry();
-  } catch (e) {
-    alert("Scraper simulation error: " + e.message);
-  }
-}
-
-async function triggerPrivilegeEscalation() {
-  try {
-    const res = await fetch("/api/attacks/privilege-escalation", { method: "POST" });
-    const data = await res.json();
-    alert(`🔑 ${data.message}\n\nExfiltrated ${data.dumped_users} password hashes and session tokens!`);
-    await fetchRecentTelemetry();
-  } catch (e) {
-    alert("Privilege escalation error: " + e.message);
-  }
-}
-
-async function triggerBenignTraffic() {
-  try {
-    const res = await fetch("/api/attacks/benign-traffic", { method: "POST" });
-    const data = await res.json();
-    alert(`✅ Emitted ${data.events_fired} benign user telemetry events to Cyber Engine.`);
-    await fetchRecentTelemetry();
-  } catch (err) {
-    alert("Benign simulation failed: " + err.message);
-  }
-}
-
-// --- Modals & Switch User ---
-
-function openCreatePostModal() {
-  const modal = document.getElementById("createPostModal");
-  if (modal) modal.classList.add("active");
-}
-
-function closeCreatePostModal() {
-  const modal = document.getElementById("createPostModal");
-  if (modal) modal.classList.remove("active");
-}
-
-function openCreateStoryModal() {
-  const modal = document.getElementById("createStoryModal");
-  if (modal) modal.classList.add("active");
-}
-
-function closeCreateStoryModal() {
-  const modal = document.getElementById("createStoryModal");
-  if (modal) modal.classList.remove("active");
-}
-
-async function submitNewStory() {
-  const mediaUrl = document.getElementById("newStoryMedia").value;
-  try {
-    const res = await fetch("/api/stories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ media_url: mediaUrl }),
-    });
-    if (res.ok) {
-      closeCreateStoryModal();
-      await fetchStories();
-      fetchRecentTelemetry();
-    }
-  } catch (e) {
-    alert("Story submission error: " + e.message);
-  }
-}
-
-async function submitNewPost() {
-  const caption = document.getElementById("newPostCaption").value;
-  const imageUrl = document.getElementById("newPostImage").value;
-  const tagsStr = document.getElementById("newPostTags").value;
-
-  const tags = tagsStr
-    .split(",")
-    .map((t) => t.trim().replace(/^#/, ""))
-    .filter(Boolean);
-
-  try {
-    const res = await fetch("/api/posts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ caption, image_url: imageUrl, tags }),
-    });
-
-    if (res.ok) {
-      closeCreatePostModal();
-      document.getElementById("newPostCaption").value = "";
-      document.getElementById("newPostImage").value = "";
-      document.getElementById("newPostTags").value = "";
-      await fetchFeed();
-      fetchRecentTelemetry();
-    }
-  } catch (err) {
-    alert("Failed to create post: " + err.message);
-  }
-}
-
-function openSwitchUserModal() {
-  const modal = document.getElementById("switchUserModal");
-  if (modal) modal.classList.add("active");
-  loadUsersList();
-}
-
-function closeSwitchUserModal() {
-  const modal = document.getElementById("switchUserModal");
-  if (modal) modal.classList.remove("active");
-}
-
-async function loadUsersList() {
-  const listContainer = document.getElementById("switchUserList");
-  if (!listContainer) return;
-
-  try {
-    const res = await fetch("/api/auth/users");
-    if (res.ok) {
-      const users = await res.json();
-      listContainer.innerHTML = users
-        .map(
-          (u) => `
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:8px; border-radius:8px; background:var(--panel-bg); margin-bottom:8px;">
-          <div style="display:flex; align-items:center; gap:10px;">
-            <img src="${u.avatar_url}" style="width:36px; height:36px; border-radius:50%; object-fit:cover;" />
+    return `
+      <article class="post-card" id="post-${p.id}">
+        <div class="post-header">
+          <div class="post-author-info">
+            <img src="${escapeHtml(p.author.avatar_url)}" class="author-avatar" />
             <div>
-              <strong>${u.username} ${u.is_verified ? "✓" : ""}</strong>
-              <div style="font-size:11px; color:var(--text-muted);">${u.full_name} &bull; <span style="color:var(--accent-lime);">${u.role.toUpperCase()}</span></div>
+              <div class="author-name">
+                ${escapeHtml(p.author.username)}
+                ${p.author.is_verified ? '<span class="verified-badge">✓</span>' : ''}
+              </div>
+              <div class="post-time">${escapeHtml(p.created_at)}</div>
             </div>
           </div>
-          <button class="btn-primary" style="padding:4px 10px; font-size:11px;" onclick="selectUser('${u.username}')">Select</button>
         </div>
-      `
-        )
-        .join("");
-    }
-  } catch (err) {
-    console.error("Error loading users:", err);
-  }
+
+        <div class="post-image-container">
+          <img src="${escapeHtml(p.image_url)}" alt="Post image" loading="lazy" />
+        </div>
+
+        <div class="post-body">
+          <div class="post-actions">
+            <button class="action-btn ${p.is_liked ? 'liked' : ''}" onclick="toggleLike('${p.id}', this)" title="Like">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="${p.is_liked ? 'var(--insta-gradient)' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+            </button>
+            <button class="action-btn" onclick="document.getElementById('comment-input-${p.id}').focus()" title="Comment">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+            </button>
+            <button class="action-btn" onclick="startDirectMessageWith('${escapeHtml(p.author.username)}')" title="Direct Message">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            </button>
+          </div>
+
+          <div class="likes-count" id="likes-count-${p.id}"><b>${p.likes_count} likes</b></div>
+
+          <div class="post-caption">
+            <b>${escapeHtml(p.author.username)}</b> ${escapeHtml(p.caption)}
+          </div>
+
+          ${tagsHtml ? `<div class="post-tags-container">${tagsHtml}</div>` : ''}
+
+          <div class="comments-section" id="comments-list-${p.id}">
+            ${commentsHtml}
+          </div>
+
+          <div class="add-comment-box">
+            <input type="text" id="comment-input-${p.id}" placeholder="Add a comment..." onkeydown="if(event.key==='Enter') addComment('${p.id}')" />
+            <button class="btn-comment" onclick="addComment('${p.id}')">Post</button>
+          </div>
+        </div>
+      </article>
+    `;
+  }).join("");
 }
 
-async function selectUser(username) {
+async function handleLogout(e) {
+  if (e) e.stopPropagation();
   try {
-    const res = await fetch(`/api/auth/switch-user/${username}`, { method: "POST" });
-    if (res.ok) {
-      closeSwitchUserModal();
-      await fetchCurrentUser();
-      fetchRecentTelemetry();
-    }
-  } catch (err) {
-    console.error("Switch user error:", err);
-  }
+    await fetch("/api/auth/logout", { method: "POST", headers: { ...getAuthHeader() } });
+  } catch (err) {}
+  localStorage.removeItem("access_token");
+  window.location.href = "/login";
 }
 
-function viewStory(storyId) {
-  const story = state.stories.find((s) => s.id === storyId);
-  if (!story) return;
-  alert(`Viewing Story from @${story.author.username} (${story.created_at})`);
+// Modal open/close helpers
+function openCreatePostModal() {
+  document.getElementById("createPostModal").style.display = "flex";
+}
+function closeCreatePostModal() {
+  document.getElementById("createPostModal").style.display = "none";
+}
+function openCreateStoryModal() {
+  document.getElementById("createStoryModal").style.display = "flex";
+}
+function closeCreateStoryModal() {
+  document.getElementById("createStoryModal").style.display = "none";
 }
 
 function escapeHtml(str) {
   if (!str) return "";
-  return str
+  return String(str)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")

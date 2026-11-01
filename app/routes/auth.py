@@ -1,122 +1,161 @@
-import uuid
-from fastapi import APIRouter, HTTPException, Request, Response
-from typing import List, Dict, Any
-
-from ..models import User, LoginRequest, RegisterRequest
+import jwt
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Depends, Request, Response, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from ..models import User, LoginRequest, RegisterRequest, ProfileUpdateRequest
 from ..database import db
-from ..telemetry import telemetry
+from ..config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+security = HTTPBearer(auto_error=False)
 
-CURRENT_ACTIVE_USER = "alice_cyber"
-
-
-@router.get("/users", response_model=List[User])
-async def list_available_users():
-    """List demo users to easily test different personas in the web UI."""
-    return list(db.users.values())
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 72
 
 
-@router.get("/me", response_model=User)
-async def get_current_user():
-    """Returns the currently active session user."""
-    global CURRENT_ACTIVE_USER
-    user = db.users.get(CURRENT_ACTIVE_USER)
+def create_access_token(username: str) -> str:
+    expires = datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS)
+    payload = {
+        "sub": username,
+        "exp": expires,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=JWT_ALGORITHM)
+
+
+def decode_token(token: str) -> Optional[str]:
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[JWT_ALGORITHM])
+        return payload.get("sub")
+    except Exception:
+        return None
+
+
+async def get_current_user_optional(
+    request: Request,
+    auth: Optional[HTTPAuthorizationCredentials] = Depends(security)
+) -> Optional[User]:
+    token = None
+    if auth and auth.credentials:
+        token = auth.credentials
+    elif "access_token" in request.cookies:
+        token = request.cookies.get("access_token")
+
+    if not token:
+        return None
+
+    username = decode_token(token)
+    if not username:
+        return None
+
+    return db.get_user_by_username(username)
+
+
+async def get_current_user(
+    user: Optional[User] = Depends(get_current_user_optional)
+) -> User:
     if not user:
-        user = list(db.users.values())[0]
-        CURRENT_ACTIVE_USER = user.username
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 
-@router.post("/switch-user/{username}")
-async def switch_user(username: str):
-    """Switch active user profile in the UI."""
-    global CURRENT_ACTIVE_USER
-    if username not in db.users:
-        raise HTTPException(status_code=404, detail="User not found")
-    CURRENT_ACTIVE_USER = username
-    return {"status": "switched", "user": db.users[username]}
+@router.post("/register")
+async def register(req: RegisterRequest, response: Response):
+    """Real user registration with hashed password."""
+    existing = db.get_user_by_username(req.username.strip().lower())
+    if existing:
+        raise HTTPException(status_code=400, detail="Username is already taken")
 
+    if len(req.username.strip()) < 3:
+        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")
 
-@router.post("/login")
-async def login(req: LoginRequest, request: Request):
-    """
-    Simulates user login.
-    Emits telemetry:
-    - 'auth.login_success' on valid credentials
-    - 'auth.login_failed' on invalid credentials (enables Cyber Engine BruteForceLoginDetector)
-    """
-    global CURRENT_ACTIVE_USER
-    client_ip = request.client.host if request.client else "127.0.0.1"
-    trace_id = f"trc_auth_{uuid.uuid4().hex[:12]}"
+    if len(req.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
 
-    expected_pwd = db.passwords.get(req.username)
+    user = db.create_user(
+        username=req.username.strip().lower(),
+        password=req.password,
+        full_name=req.full_name.strip(),
+        bio=req.bio or ""
+    )
 
-    if expected_pwd is None or expected_pwd != req.password:
-        # Failed login attempt -> Emit auth.login_failed
-        telemetry.emit(
-            event_type="auth.login_failed",
-            attributes={
-                "username": req.username,
-                "ip": client_ip,
-                "reason": "invalid_credentials" if expected_pwd else "user_not_found",
-                "attempt_time": int(uuid.uuid1().time),
-                "client_user_agent": request.headers.get("user-agent", "Unknown"),
-            },
-            source_resource=f"ip:{client_ip}",
-            target_resource=f"user:{req.username}",
-            trace_id=trace_id,
-            severity="warning",
-        )
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-
-    # Success login -> Emit auth.login_success
-    CURRENT_ACTIVE_USER = req.username
-    user = db.users[req.username]
-
-    telemetry.emit(
-        event_type="auth.login_success",
-        attributes={
-            "username": req.username,
-            "user_id": user.id,
-            "ip": client_ip,
-        },
-        source_resource=f"ip:{client_ip}",
-        target_resource=f"user:{req.username}",
-        trace_id=trace_id,
-        severity="info",
+    token = create_access_token(user.username)
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=3600 * 24 * 3
     )
 
     return {
-        "status": "authenticated",
-        "token": f"jwt_mock_{uuid.uuid4().hex}",
-        "user": user,
+        "status": "success",
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user
     }
 
 
-@router.post("/register")
-async def register(req: RegisterRequest):
-    """Registers a new user account."""
-    if req.username in db.users:
-        raise HTTPException(status_code=400, detail="Username already exists")
+@router.post("/login")
+async def login(req: LoginRequest, response: Response):
+    """Real authentication endpoint."""
+    user = db.verify_user_password(req.username.strip().lower(), req.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid username or password"
+        )
 
-    new_user = User(
-        id=f"usr_{uuid.uuid4().hex[:8]}",
-        username=req.username,
+    token = create_access_token(user.username)
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=3600 * 24 * 3
+    )
+
+    return {
+        "status": "success",
+        "access_token": token,
+        "token_type": "bearer",
+        "user": user
+    }
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Logout current user and clear auth cookies."""
+    response.delete_cookie(key="access_token")
+    return {"status": "success", "message": "Logged out successfully"}
+
+
+@router.get("/me", response_model=User)
+async def get_current_user_profile(user: User = Depends(get_current_user)):
+    """Return profile for the currently authenticated user."""
+    return user
+
+
+@router.put("/profile", response_model=User)
+async def update_profile(req: ProfileUpdateRequest, user: User = Depends(get_current_user)):
+    """Update profile information."""
+    updated = db.update_user_profile(
+        username=user.username,
         full_name=req.full_name,
-        avatar_url="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&h=150&fit=crop&crop=face",
-        bio=req.bio or "Hey there! I'm using InstaTern.",
-        followers_count=0,
-        following_count=0,
+        bio=req.bio,
+        avatar_url=req.avatar_url
     )
-    db.users[req.username] = new_user
-    db.passwords[req.username] = req.password
+    return updated
 
-    telemetry.emit(
-        event_type="user.registered",
-        attributes={"username": req.username, "user_id": new_user.id},
-        severity="info",
-    )
 
-    return {"status": "created", "user": new_user}
-
+@router.get("/users/{username}", response_model=User)
+async def get_user_profile(username: str):
+    """Get public profile for any user."""
+    user = db.get_user_by_username(username)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user

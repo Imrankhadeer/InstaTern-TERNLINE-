@@ -6,31 +6,29 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from .config import settings
-from .telemetry import telemetry
 from .routes.auth import router as auth_router
 from .routes.feed import router as feed_router
 from .routes.messages import router as messages_router
-from .routes.admin import router as admin_router
 from .routes.search import router as search_router
-from .routes.worker import router as worker_router
-from .routes.attacks import router as attacks_router
 
 app = FastAPI(
-    title="InstaTern — Advanced Multi-Service Social Platform",
-    description="Full-scale Instagram microservice architecture instrumented for Cyber Engine security testing",
+    title=settings.app_name,
+    description="Clean, production-ready social media platform",
     version=settings.version,
 )
 
-# Enable CORS for cloud deployments
+# CORS configuration
+raw_cors = os.getenv("ALLOWED_CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000")
+origins = [o.strip() for o in raw_cors.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Mount static and templates
+# Mount static files and templates
 base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 static_dir = os.path.join(base_dir, "static")
 templates_dir = os.path.join(base_dir, "templates")
@@ -40,39 +38,38 @@ if os.path.exists(static_dir):
 
 templates = Jinja2Templates(directory=templates_dir)
 
-# Register all modular routers
+# Register routers
 app.include_router(auth_router)
 app.include_router(feed_router)
 app.include_router(messages_router)
-app.include_router(admin_router)
 app.include_router(search_router)
-app.include_router(worker_router)
-app.include_router(attacks_router)
 
 
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    """Renders the main Instagram interface with Cyber Engine security dock."""
+    """Renders the main application feed."""
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={
-            "app_name": settings.app_name,
-            "cyber_engine_url": settings.cyber_engine_url,
-            "app_id": settings.app_id,
-            "tenant_id": settings.tenant_id,
-        },
+        context={"app_name": settings.app_name},
+    )
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    """Renders the login and registration page."""
+    return templates.TemplateResponse(
+        request=request,
+        name="login.html",
+        context={"app_name": settings.app_name},
     )
 
 
 @app.get("/health")
 async def health():
-    """Health check endpoint for Cloud Run, Render, or Kubernetes readiness/liveness probes."""
-    conn = await telemetry.check_connection()
+    """Application health probe."""
     return {
         "status": "healthy",
         "app": settings.app_name,
         "version": settings.version,
-        "port": settings.port,
-        "cyber_engine_connection": conn,
     }
