@@ -140,3 +140,25 @@ def test_notifications_flow():
     # Mark notifications read
     res_read = client.post("/api/notifications/read", headers={"Authorization": f"Bearer {token_sarah}"})
     assert res_read.status_code == 200
+
+
+def test_telemetry_sdk_integration():
+    from app.telemetry import telemetry
+
+    # Health check should return telemetry info
+    res = client.get("/health")
+    assert res.status_code == 200
+    data = res.json()
+    assert "telemetry" in data
+    assert "enabled" in data["telemetry"]
+
+    # Making requests with custom trace ID propagates to telemetry
+    custom_trace = f"trc_test_{uuid.uuid4().hex[:12]}"
+    res_feed = client.get("/api/feed", headers={"x-trace-id": custom_trace})
+    assert res_feed.status_code == 200
+
+    # Verify telemetry has captured the recent event
+    matching = [e for e in telemetry.recent_events if e.get("trace_id") == custom_trace]
+    assert len(matching) >= 1
+    assert matching[0]["event_type"] == "http.request"
+    assert matching[0]["attributes"]["status_code"] == 200

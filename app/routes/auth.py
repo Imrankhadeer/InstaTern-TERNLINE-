@@ -9,6 +9,7 @@ from ..models import (
 )
 from ..database import db
 from ..config import settings
+from ..telemetry import telemetry
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 security = HTTPBearer(auto_error=False)
@@ -67,7 +68,7 @@ async def get_current_user(
 
 
 @router.post("/register")
-async def register(req: RegisterRequest, response: Response):
+async def register(req: RegisterRequest, response: Response, request: Request):
     """User registration with secure credential hashing."""
     clean_username = req.username.strip().lower()
     existing = db.get_user_by_username(clean_username)
@@ -88,6 +89,15 @@ async def register(req: RegisterRequest, response: Response):
         website=req.website or ""
     )
 
+    client_ip = request.client.host if request.client else "unknown"
+    telemetry.emit(
+        event_type="auth.register_success",
+        severity="info",
+        source_resource=client_ip,
+        target_resource=f"user:{clean_username}",
+        attributes={"username": clean_username, "full_name": user.full_name},
+    )
+
     token = create_access_token(user.username)
     response.set_cookie(
         key="access_token",
@@ -106,14 +116,31 @@ async def register(req: RegisterRequest, response: Response):
 
 
 @router.post("/login")
-async def login(req: LoginRequest, response: Response):
+async def login(req: LoginRequest, response: Response, request: Request):
     """Real JWT authentication endpoint."""
-    user = db.verify_user_password(req.username.strip().lower(), req.password)
+    clean_username = req.username.strip().lower()
+    client_ip = request.client.host if request.client else "unknown"
+    user = db.verify_user_password(clean_username, req.password)
     if not user:
+        telemetry.emit(
+            event_type="auth.login_failed",
+            severity="medium",
+            source_resource=client_ip,
+            target_resource=f"user:{clean_username}",
+            attributes={"username": clean_username, "reason": "invalid_credentials"},
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password"
         )
+
+    telemetry.emit(
+        event_type="auth.login_success",
+        severity="info",
+        source_resource=client_ip,
+        target_resource=f"user:{user.username}",
+        attributes={"username": user.username, "role": user.role},
+    )
 
     token = create_access_token(user.username)
     response.set_cookie(
@@ -133,9 +160,21 @@ async def login(req: LoginRequest, response: Response):
 
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(
+    response: Response,
+    request: Request,
+    current_user: Optional[User] = Depends(get_current_user_optional)
+):
     """Invalidate session cookies."""
     response.delete_cookie(key="access_token")
+    if current_user:
+        telemetry.emit(
+            event_type="auth.token_revoked",
+            severity="low",
+            source_resource=request.client.host if request.client else "unknown",
+            target_resource=f"user:{current_user.username}",
+            attributes={"action": "logout"},
+        )
     return {"status": "success", "message": "Logged out successfully"}
 
 
