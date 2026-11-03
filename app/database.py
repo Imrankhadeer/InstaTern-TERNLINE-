@@ -849,22 +849,36 @@ class Database:
 
             # Search Posts
             if entity_type in ("all", "posts", "tags"):
-                order_clause = "ORDER BY ROWID DESC"
-                if sort_by == "popular":
-                    order_clause = "ORDER BY (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.id) DESC"
-
                 if is_hashtag or entity_type == "tags":
-                    cursor.execute(f"""
-                        SELECT * FROM posts
-                        WHERE LOWER(tags) LIKE ?
-                        {order_clause} LIMIT ?
-                    """, (f"%{clean_tag}%", limit))
+                    if sort_by == "popular":
+                        cursor.execute("""
+                            SELECT * FROM posts
+                            WHERE LOWER(tags) LIKE ?
+                            ORDER BY (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.id) DESC
+                            LIMIT ?
+                        """, (f"%{clean_tag}%", limit))
+                    else:
+                        cursor.execute("""
+                            SELECT * FROM posts
+                            WHERE LOWER(tags) LIKE ?
+                            ORDER BY ROWID DESC
+                            LIMIT ?
+                        """, (f"%{clean_tag}%", limit))
                 else:
-                    cursor.execute(f"""
-                        SELECT * FROM posts
-                        WHERE caption LIKE ? OR LOWER(tags) LIKE ?
-                        {order_clause} LIMIT ?
-                    """, (term, term, limit))
+                    if sort_by == "popular":
+                        cursor.execute("""
+                            SELECT * FROM posts
+                            WHERE caption LIKE ? OR LOWER(tags) LIKE ?
+                            ORDER BY (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.id) DESC
+                            LIMIT ?
+                        """, (term, term, limit))
+                    else:
+                        cursor.execute("""
+                            SELECT * FROM posts
+                            WHERE caption LIKE ? OR LOWER(tags) LIKE ?
+                            ORDER BY ROWID DESC
+                            LIMIT ?
+                        """, (term, term, limit))
 
                 post_rows = cursor.fetchall()
                 results["posts"] = [self._hydrate_post(conn, r, current_username) for r in post_rows]
