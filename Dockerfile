@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application source code
 COPY app/ ./app/
+COPY cyber_engine/ ./cyber_engine/
 COPY static/ ./static/
 COPY templates/ ./templates/
 COPY run.py .

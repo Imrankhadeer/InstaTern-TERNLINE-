@@ -15,3 +15,13 @@ services:
         value: instagram.db
       - key: ALLOWED_CORS_ORIGINS
         value: https://instatern-instagram-app.onrender.com
+      - key: TERNLINE_ENDPOINT
+        value: https://ternline.vercel.app
+      - key: TERNLINE_APP_ID
+        value: instagram-app
+      - key: TERNLINE_SERVICE_ID
+        value: instagram-api
+      - key: TERNLINE_API_KEY
+        sync: false
+      - key: TELEMETRY_ENABLED
+        value: "true"

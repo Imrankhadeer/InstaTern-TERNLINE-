@@ -10,14 +10,20 @@ logger = logging.getLogger("instagram_app.telemetry")
 try:
     from cyber_engine import CyberEngine, IngestResult
 except ImportError:
-    sdk_path = r"D:\Programing\MUSE AI\CYBER ENGINE\sdk"
-    if os.path.exists(sdk_path) and sdk_path not in sys.path:
-        sys.path.insert(0, sdk_path)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if base_dir not in sys.path:
+        sys.path.insert(0, base_dir)
     try:
         from cyber_engine import CyberEngine, IngestResult
     except ImportError:
-        CyberEngine = None
-        IngestResult = None
+        sdk_path = r"D:\Programing\MUSE AI\CYBER ENGINE\sdk"
+        if os.path.exists(sdk_path) and sdk_path not in sys.path:
+            sys.path.insert(0, sdk_path)
+        try:
+            from cyber_engine import CyberEngine, IngestResult
+        except ImportError:
+            CyberEngine = None
+            IngestResult = None
 
 from .config import settings
 
