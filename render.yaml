@@ -16,11 +16,11 @@ services:
       - key: ALLOWED_CORS_ORIGINS
         value: https://instatern-instagram-app.onrender.com
       - key: TERNLINE_ENDPOINT
-        value: http://13.211.144.111:8000
+        value: https://ternline.vercel.app
       - key: TERNLINE_APP_ID
-        value: instagr-app
+        value: instagram-app
       - key: TERNLINE_SERVICE_ID
-        value: instagr-tern
+        value: instagram-api
       - key: TERNLINE_API_KEY
         sync: false
       - key: TELEMETRY_ENABLED

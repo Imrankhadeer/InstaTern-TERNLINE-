@@ -14,4 +14,10 @@ services:
       - SECRET_KEY=change-this-to-a-secure-random-secret-key-in-production
       - DB_PATH=instagram.db
       - ALLOWED_CORS_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+      # Ternline / CYBER ENGINE telemetry — read from environment or .env
+      - TERNLINE_ENDPOINT=${TERNLINE_ENDPOINT:-https://ternline.vercel.app}
+      - TERNLINE_API_KEY=${TERNLINE_API_KEY:-}
+      - TERNLINE_APP_ID=${TERNLINE_APP_ID:-instagram-app}
+      - TERNLINE_SERVICE_ID=${TERNLINE_SERVICE_ID:-instagram-api}
+      - TELEMETRY_ENABLED=${TELEMETRY_ENABLED:-true}
     restart: unless-stopped

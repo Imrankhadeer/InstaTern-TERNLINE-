@@ -99,11 +99,13 @@ async def register(req: RegisterRequest, response: Response, request: Request):
     )
 
     token = create_access_token(user.username)
+    is_secure = settings.environment != "development"
     response.set_cookie(
         key="access_token",
         value=token,
         httponly=True,
         samesite="lax",
+        secure=is_secure,
         max_age=3600 * 24 * 3
     )
 
@@ -143,11 +145,13 @@ async def login(req: LoginRequest, response: Response, request: Request):
     )
 
     token = create_access_token(user.username)
+    is_secure = settings.environment != "development"
     response.set_cookie(
         key="access_token",
         value=token,
         httponly=True,
         samesite="lax",
+        secure=is_secure,
         max_age=3600 * 24 * 3
     )
 

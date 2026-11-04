@@ -2,6 +2,8 @@ import sqlite3
 import uuid
 import json
 import hashlib
+import hmac
+import os
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from .config import settings
@@ -12,9 +14,25 @@ from .models import (
 
 
 def hash_password(password: str) -> str:
-    """Standard SHA-256 with salt password hashing."""
-    salt = "insta_salt_prod_2026_"
-    return hashlib.sha256((salt + password).encode("utf-8")).hexdigest()
+    """PBKDF2-SHA256 with a random per-user salt. Returns 'salt_hex:hash_hex'."""
+    salt = os.urandom(32)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 260_000)
+    return salt.hex() + ":" + key.hex()
+
+
+def verify_password(password: str, stored: str) -> bool:
+    """Verify a password against a stored hash. Supports both legacy and PBKDF2 formats."""
+    if ":" in stored:
+        # New PBKDF2 format
+        salt_hex, key_hex = stored.split(":", 1)
+        salt = bytes.fromhex(salt_hex)
+        key = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 260_000)
+        return hmac.compare_digest(key.hex(), key_hex)
+    else:
+        # Legacy static-salt SHA-256 (backward compat for existing DB rows)
+        legacy_salt = "insta_salt_prod_2026_"
+        legacy_hash = hashlib.sha256((legacy_salt + password).encode("utf-8")).hexdigest()
+        return hmac.compare_digest(stored, legacy_hash)
 
 
 class Database:
@@ -394,7 +412,7 @@ class Database:
             row = cursor.fetchone()
             if not row:
                 return None
-            if row["password_hash"] == hash_password(password):
+            if verify_password(password, row["password_hash"]):
                 return self._row_to_user(conn, row)
             return None
 
@@ -517,8 +535,8 @@ class Database:
                 notif_id = f"notif_{uuid.uuid4().hex[:8]}"
                 cursor.execute("""
                     INSERT INTO notifications (id, recipient, sender_username, type, post_id, text, created_at, is_read)
-                    VALUES (?, ?, ?, 'follow', NULL, 'started following you', 'Just now', 0)
-                """, (notif_id, target_username, follower_username))
+                    VALUES (?, ?, ?, 'follow', NULL, 'started following you', ?, 0)
+                """, (notif_id, target_username, follower_username, datetime.now(timezone.utc).isoformat()))
 
             cursor.execute("SELECT COUNT(*) as count FROM followers WHERE following_username = ?", (target_username,))
             followers_count = cursor.fetchone()["count"]
@@ -655,7 +673,7 @@ class Database:
 
     def create_post(self, username: str, caption: str, image_url: str, tags: List[str]) -> Optional[Post]:
         post_id = f"post_{uuid.uuid4().hex[:10]}"
-        now = "Just now"
+        now = datetime.now(timezone.utc).isoformat()
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -708,8 +726,8 @@ class Database:
                     notif_id = f"notif_{uuid.uuid4().hex[:8]}"
                     cursor.execute("""
                         INSERT INTO notifications (id, recipient, sender_username, type, post_id, text, created_at, is_read)
-                        VALUES (?, ?, ?, 'like', ?, 'liked your post', 'Just now', 0)
-                    """, (notif_id, post["author_username"], username, post_id))
+                        VALUES (?, ?, ?, 'like', ?, 'liked your post', ?, 0)
+                    """, (notif_id, post["author_username"], username, post_id, datetime.now(timezone.utc).isoformat()))
 
             cursor.execute("SELECT COUNT(*) as count FROM likes WHERE post_id = ?", (post_id,))
             likes_count = cursor.fetchone()["count"]
@@ -740,7 +758,7 @@ class Database:
 
     def add_comment(self, post_id: str, username: str, text: str) -> Optional[Comment]:
         comment_id = f"cm_{uuid.uuid4().hex[:8]}"
-        now = "Just now"
+        now = datetime.now(timezone.utc).isoformat()
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -759,8 +777,8 @@ class Database:
                 notif_id = f"notif_{uuid.uuid4().hex[:8]}"
                 cursor.execute("""
                     INSERT INTO notifications (id, recipient, sender_username, type, post_id, text, created_at, is_read)
-                    VALUES (?, ?, ?, 'comment', ?, ?, 'Just now', 0)
-                """, (notif_id, post["author_username"], username, post_id, f"commented: '{snippet}'"))
+                    VALUES (?, ?, ?, 'comment', ?, ?, ?, 0)
+                """, (notif_id, post["author_username"], username, post_id, f"commented: '{snippet}'", datetime.now(timezone.utc).isoformat()))
 
             conn.commit()
 
@@ -793,7 +811,7 @@ class Database:
 
     def create_story(self, username: str, media_url: str) -> Optional[Story]:
         story_id = f"story_{uuid.uuid4().hex[:8]}"
-        now = "Just now"
+        now = datetime.now(timezone.utc).isoformat()
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -941,7 +959,7 @@ class Database:
             return convs
 
     def send_message(self, sender: str, recipient: str, text: str) -> DirectMessage:
-        now = datetime.now(timezone.utc).strftime("%H:%M")
+        now = datetime.now(timezone.utc).isoformat()
         msg_id = f"dm_{uuid.uuid4().hex[:8]}"
 
         p1, p2 = sorted([sender, recipient])
@@ -969,10 +987,11 @@ class Database:
 
             # Trigger notification
             notif_id = f"notif_{uuid.uuid4().hex[:8]}"
+            snippet = (text[:25] + "...") if len(text) > 25 else text
             cursor.execute("""
                 INSERT INTO notifications (id, recipient, sender_username, type, post_id, text, created_at, is_read)
-                VALUES (?, ?, ?, 'message', NULL, ?, 'Just now', 0)
-            """, (notif_id, recipient, sender, f"sent you a message: '{text[:25]}...'"))
+                VALUES (?, ?, ?, 'message', NULL, ?, ?, 0)
+            """, (notif_id, recipient, sender, f"sent you a message: '{snippet}'", datetime.now(timezone.utc).isoformat()))
 
             conn.commit()
 
@@ -995,7 +1014,7 @@ class Database:
         post_id: Optional[str] = None
     ):
         notif_id = f"notif_{uuid.uuid4().hex[:8]}"
-        now = "Just now"
+        now = datetime.now(timezone.utc).isoformat()
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
