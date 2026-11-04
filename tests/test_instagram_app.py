@@ -142,6 +142,34 @@ def test_notifications_flow():
     assert res_read.status_code == 200
 
 
+def test_social_router_endpoints():
+    token = get_auth_token("sarah_dev")
+    # Follow via /api/social/follow/{username}
+    res_follow = client.post("/api/social/follow/marcus_photo", headers={"Authorization": f"Bearer {token}"})
+    assert res_follow.status_code == 200
+    assert res_follow.json()["following"] is True
+
+    # Get followers list
+    res_followers = client.get("/api/social/followers/marcus_photo", headers={"Authorization": f"Bearer {token}"})
+    assert res_followers.status_code == 200
+    assert any(u["username"] == "sarah_dev" for u in res_followers.json())
+
+    # Get following list
+    res_following = client.get("/api/social/following/sarah_dev", headers={"Authorization": f"Bearer {token}"})
+    assert res_following.status_code == 200
+    assert any(u["username"] == "marcus_photo" for u in res_following.json())
+
+    # Get suggestions
+    res_sugg = client.get("/api/social/suggestions", headers={"Authorization": f"Bearer {token}"})
+    assert res_sugg.status_code == 200
+    assert isinstance(res_sugg.json(), list)
+
+    # Unfollow via /api/social/unfollow/{username}
+    res_unfollow = client.post("/api/social/unfollow/marcus_photo", headers={"Authorization": f"Bearer {token}"})
+    assert res_unfollow.status_code == 200
+    assert res_unfollow.json()["following"] is False
+
+
 def test_telemetry_sdk_integration():
     from app.telemetry import telemetry
 

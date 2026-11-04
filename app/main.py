@@ -13,6 +13,7 @@ from .routes.auth import router as auth_router
 from .routes.feed import router as feed_router
 from .routes.messages import router as messages_router
 from .routes.search import router as search_router
+from .routes.social import router as social_router
 
 
 @asynccontextmanager
@@ -104,6 +105,7 @@ app.include_router(auth_router)
 app.include_router(feed_router)
 app.include_router(messages_router)
 app.include_router(search_router)
+app.include_router(social_router)
 
 
 @app.get("/", response_class=HTMLResponse)
